@@ -1,0 +1,17 @@
+# Optional source mounts for Linux or Docker Desktop development.
+# docker compose -f compose.yaml -f compose.dev.yaml up --build
+services:
+  api:
+    volumes:
+      - ./backend:/app/backend:ro
+      - ./examples:/app/examples:ro
+    environment:
+      PYTHONPATH: /app/backend
+    command: ["uvicorn", "gustsim.api:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/backend"]
+  worker:
+    volumes:
+      - ./backend:/app/backend:ro
+      - ./examples:/app/examples:ro
+      - ./scripts:/app/scripts:ro
+    environment:
+      PYTHONPATH: /app/backend

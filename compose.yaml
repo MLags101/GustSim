@@ -1,0 +1,39 @@
+name: gustsim
+services:
+  api:
+    build: .
+    init: true
+    ports:
+      - "127.0.0.1:${GUSTSIM_PORT:-8080}:8000"
+    volumes:
+      - gustsim-data:/data
+    restart: unless-stopped
+    mem_limit: ${GUSTSIM_API_MEMORY:-6g}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+  worker:
+    depends_on:
+      api:
+        condition: service_healthy
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    init: true
+    volumes:
+      - gustsim-data:/data
+    mem_limit: ${GUSTSIM_WORKER_MEMORY:-22g}
+    cpus: ${GUSTSIM_CPUS:-6}
+    shm_size: 1g
+    environment:
+      GUSTSIM_MEMORY_GB: "${GUSTSIM_MEMORY_GB:-20}"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "from gustsim.db import worker_status; import sys; sys.exit(0 if worker_status()['online'] else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+volumes:
+  gustsim-data:

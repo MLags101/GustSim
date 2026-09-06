@@ -1,0 +1,11 @@
+.venv
+node_modules
+.pnpm-store
+data
+dist
+.git
+__pycache__
+.pytest_cache
+*.log
+release
+gustsim-data.tar.gz

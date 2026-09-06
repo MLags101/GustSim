@@ -1,0 +1,21 @@
+import { fmt } from './Controls';
+export function TraceChart({series,logarithmic=false,label,xLabel='SIMPLE iteration'}:{series:{name:string;color:string;values:[number,number][]}[];logarithmic?:boolean;label:string;xLabel?:string}){
+  const all=series.flatMap(s=>s.values).filter(p=>Number.isFinite(p[0])&&Number.isFinite(p[1])&&(!logarithmic||p[1]>0));
+  if(!all.length)return <div className="chart-empty">{label} appears after a solve.</div>;
+  const transform=(v:number)=>logarithmic?Math.log10(Math.max(v,1e-16)):v;
+  const minX=Math.min(...all.map(p=>p[0])),maxX=Math.max(...all.map(p=>p[0]));
+  const minY=Math.min(...all.map(p=>transform(p[1]))),maxY=Math.max(...all.map(p=>transform(p[1])));
+  const x=(v:number)=>50+(v-minX)/(maxX-minX||1)*550,y=(v:number)=>155-(transform(v)-minY)/(maxY-minY||1)*130;
+  return <div className="trace-chart"><svg viewBox="0 0 620 195" role="img" aria-label={label}>{[0,.5,1].map(f=><g key={f}><line x1="50" x2="600" y1={25+f*130} y2={25+f*130} stroke="#2d3c49"/><text x="4" y={30+f*130} fill="#94a6b8" fontSize="11">{logarithmic?`10^${(maxY-f*(maxY-minY)).toFixed(1)}`:fmt(maxY-f*(maxY-minY),3)}</text></g>)}{series.map(s=><polyline key={s.name} points={s.values.filter(p=>Number.isFinite(p[1])&&(!logarithmic||p[1]>0)).map(p=>`${x(p[0])},${y(p[1])}`).join(' ')} fill="none" stroke={s.color} strokeWidth="1.8"/>)}<text x="50" y="180" fill="#94a6b8" fontSize="11">{fmt(minX,3)}</text><text x="555" y="180" fill="#94a6b8" fontSize="11">{fmt(maxX,3)}</text></svg><div className="chart-key">{series.map(s=><span key={s.name}><i style={{background:s.color}}/>{s.name}</span>)}<small>{xLabel}</small></div></div>;
+}
+export default function RunDetails({run,logs}:{run:any;logs:string[]}){
+  const result=run?.result; const m=result?.metrics||{};
+  return <div className="run-details"><div className="details-heading"><div><span className="eyebrow">SIMULATION RECORD</span><h2>{run?.spec.name||'No run selected'}</h2></div>{run&&<span className={`run-badge ${run.status}`}>{run.status} · {run.stage}</span>}</div>
+    {run?.error&&<p className="finding fail">{run.error}</p>}
+    {result?.metrics&&<><div className="metrics-grid">{[['Drag','drag_n','N'],['Lift','lift_n','N'],['Drag coefficient','cd',''],['Lift coefficient','cl',''],['Thrust','thrust_n','N'],['Shaft torque','torque_nm','N·m'],['Shaft power','shaft_power_w','W'],['Efficiency','efficiency',''],['Pressure drop','pressure_drop_pa','Pa'],['Mass imbalance','mass_imbalance',''],['Thrust coefficient','ct',''],['Torque coefficient','cq','']].map(([name,key,unit])=><div key={key}><span>{name}</span><strong>{fmt(key==='mass_imbalance'?result.mass_imbalance:m[key])}<small>{unit}</small></strong></div>)}</div><p className="hint">{result.numerical_status==='checks_passed'?'Numerical checks passed.':'Numerical quality needs review.'} Experimental template validation remains pending. “—” indicates an unavailable or undefined quantity.</p>
+      <div className="chart-grid"><section><h3>Initial residuals</h3><TraceChart label="Residual history" logarithmic series={['p','Ux','Uy','Uz','k','omega'].map((field,i)=>({name:field,color:['#77e5c3','#89b9ff','#d5a8ff','#edba76','#ff9595','#bdd66d'][i],values:(result.residuals||[]).filter((r:any)=>r.field===field).map((r:any)=>[r.iteration,r.initial])}))}/></section><section><h3>Force stability</h3><TraceChart label="Force history in newtons" series={['Fx','Fy','Fz'].map((name,i)=>({name,color:['#77e5c3','#89b9ff','#edba76'][i],values:(result.history||[]).map((r:any)=>[r.iteration,r.force[i]])}))}/></section></div>
+      {!!Object.keys(result.components||{}).length&&<details><summary>Component loads</summary><div className="table-scroll"><table><thead><tr><th>Surface</th><th>Fx · N</th><th>Fy · N</th><th>Fz · N</th></tr></thead><tbody>{Object.entries(result.components).map(([name,v]:any)=><tr key={name}><td>{name}</td>{v.force.map((n:number,i:number)=><td key={i}>{fmt(n)}</td>)}</tr>)}</tbody></table></div></details>}
+    </>}
+    {run&&<details open={run.status==='running'||run.status==='failed'}><summary>Execution log <small>{run.id.slice(0,8)}</small></summary><pre className="log-output">{logs.length?logs.join('\n'):'No log events recorded.'}</pre></details>}
+  </div>;
+}
