@@ -9,11 +9,14 @@ import vtkXMLPolyDataReader from '@kitware/vtk.js/IO/XML/XMLPolyDataReader';
 import vtkColorTransferFunction from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction';
 import vtkColorMaps from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction/ColorMaps';
 import { api } from './api';
+import vtkDataArray from '@kitware/vtk.js/Common/Core/DataArray';
+import {overlayGeometry} from './overlays';
 
-export default function Viewer({geometryId, resultUrl, field='pressure_pa', colorRange, wireframe=false, onPick, reset=0}: {
-  geometryId?: string; resultUrl?: string; field?: string; colorRange?: [number,number]; wireframe?:boolean; onPick?:(group:number)=>void; reset?:number;
+export default function Viewer({geometryId, resultUrl, field='pressure_pa', colorRange, wireframe=false, onPick, reset=0, selectedGroups=[],hiddenGroups=[],rotation,domain}: {
+  geometryId?: string; resultUrl?: string; field?: string; colorRange?: [number,number]; wireframe?:boolean; onPick?:(group:number)=>void; reset?:number;selectedGroups?:number[];hiddenGroups?:number[];rotation?:any;domain?:any;
 }) {
   const container = useRef<HTMLDivElement>(null);
+  const cameraState=useRef<any>(undefined);
   const pickRef = useRef(onPick); pickRef.current = onPick;
   const [error,setError]=useState('');
   const [range,setRange]=useState<number[]>([]);
@@ -28,6 +31,8 @@ export default function Viewer({geometryId, resultUrl, field='pressure_pa', colo
     actor.getProperty().setSpecular(0.3); actor.getProperty().setSpecularPower(25);
     actor.getProperty().setEdgeVisibility(wireframe);
     actor.getProperty().setEdgeColor(0.14,0.24,0.28);
+    if(resultUrl){actor.getProperty().setAmbient(.7);actor.getProperty().setDiffuse(.3);}
+    if(resultUrl?.endsWith('mesh-preview.vtp'))actor.getProperty().setEdgeColor(.36,.56,.65);
     renderer.addActor(actor);
     let groups:number[]=[];
     const owned:any[]=[];
@@ -63,18 +68,24 @@ export default function Viewer({geometryId, resultUrl, field='pressure_pa', colo
           const data=await api(`/geometry/${geometryId}/scene`); if(disposed)return;
           poly=vtkPolyData.newInstance(); owned.push(poly);
           poly.getPoints().setData(new Float32Array(data.points),3);
-          poly.getPolys().setData(new Uint32Array(data.polys)); groups=data.groups;
-          mapper.setScalarVisibility(false);
+          const hidden=new Set(hiddenGroups),selected=new Set(selectedGroups),rotor=new Set((data.patches||[]).filter((p:any)=>rotation?.enabled&&rotation.patches.includes(p.name)).map((p:any)=>p.group));
+          const polys:number[]=[],colors:number[]=[];let cell=0;
+          for(let i=0;i<data.polys.length;){const n=data.polys[i],g=data.groups[cell++];if(!hidden.has(g)){polys.push(...data.polys.slice(i,i+n+1));groups.push(g);colors.push(...(selected.has(g)?[113,225,195]:rotor.has(g)?[237,186,118]:[156,186,199]));}i+=n+1;}
+          poly.getPolys().setData(new Uint32Array(polys));
+          const colorsArray=vtkDataArray.newInstance({name:'componentColors',numberOfComponents:3,values:new Uint8Array(colors)});owned.push(colorsArray);poly.getCellData().setScalars(colorsArray);mapper.setScalarMode(2);mapper.setColorModeToDirectScalars();mapper.setScalarVisibility(true);
         } else return;
         if(disposed)return;
         mapper.setInputData(poly); renderer.resetCamera();
-        const camera=renderer.getActiveCamera(); camera.azimuth(25);camera.elevation(20);camera.setViewUp(0,0,1);
+        const camera=renderer.getActiveCamera();const saved=cameraState.current;const sceneKey=resultUrl||geometryId;
+        if(saved?.key===sceneKey&&saved.reset===reset){camera.setPosition(...saved.position as [number,number,number]);camera.setFocalPoint(...saved.focal as [number,number,number]);camera.setViewUp(...saved.up as [number,number,number]);camera.setParallelScale(saved.scale);}
+        else{camera.azimuth(25);camera.elevation(20);camera.setViewUp(0,0,1);}
+        if(!resultUrl&&(rotation?.enabled||domain)){const overlay=overlayGeometry(rotation,domain);owned.push(overlay);const overlayMapper=vtkMapper.newInstance();owned.push(overlayMapper);overlayMapper.setInputData(overlay);const overlayActor=vtkActor.newInstance();owned.push(overlayActor);overlayActor.setMapper(overlayMapper);overlayActor.getProperty().setColor(.97,.79,.5);overlayActor.getProperty().setLineWidth(2);overlayActor.setPickable(false);renderer.addActor(overlayActor);}
         renderer.resetCameraClippingRange();render.resize();window.render();
       }catch(e){if(!disposed)setError(String(e));}
     }
     load();
-    return ()=>{disposed=true; observer.disconnect();subscription.unsubscribe();picker.delete();renderer.removeActor(actor);actor.delete();mapper.delete();owned.forEach(v=>v.delete());render.delete();};
-  },[geometryId,resultUrl,field,colorRange?.[0],colorRange?.[1],wireframe,reset]);
+    return ()=>{const camera=renderer.getActiveCamera();cameraState.current={key:resultUrl||geometryId,reset,position:[...camera.getPosition()],focal:[...camera.getFocalPoint()],up:[...camera.getViewUp()],scale:camera.getParallelScale()};disposed=true; observer.disconnect();subscription.unsubscribe();picker.delete();renderer.removeActor(actor);actor.delete();mapper.delete();owned.forEach(v=>v.delete());render.delete();};
+  },[geometryId,resultUrl,field,colorRange?.[0],colorRange?.[1],wireframe,reset,JSON.stringify(selectedGroups),JSON.stringify(hiddenGroups),JSON.stringify(rotation),JSON.stringify(domain)]);
   return <div className="viewport"><div className="vtk-container" ref={container}/>{error&&<div className="viewport-notice">{error}</div>}
     {!geometryId&&!resultUrl&&<div className="viewport-empty"><div className="empty-cross">＋</div><h2>Your next simulation starts here</h2><p>Import a STEP or STL model, or create a primitive.<br/>Geometry stays on this machine.</p></div>}
     <div className="axis-key"><span>X</span><span>Y</span><span>Z</span><small>SI · metres</small></div>

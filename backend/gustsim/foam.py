@@ -20,12 +20,14 @@ def write(folder,name,text,cls="dictionary"):
 
 def boundary_field(spec,b,field):
     velocity=vector(b.velocity if b.velocity is not None else spec.flow.velocity())
+    ambient=b.kind=='freestream' and sum(v*v for v in (b.velocity if b.velocity is not None else spec.flow.velocity())) < 1e-24
     p=b.pressure_pa/spec.fluid.density
     k=max(1.5*(max(spec.flow.speed,0.01)*spec.flow.intensity)**2,1e-10)
     omega=max(math.sqrt(k)/(0.09**0.25*spec.flow.length_scale),1e-10)
     wall=b.kind in {"wall","moving_wall","rotating_wall"}
     if b.kind=="symmetry":return "type symmetryPlane;"
     if field=="U":
+        if ambient:return 'type pressureInletOutletVelocity; value uniform (0 0 0);'
         if b.kind=="velocity_inlet":return f"type fixedValue; value uniform {velocity};"
         if b.kind=="flow_inlet":return f"type flowRateInletVelocity; volumetricFlowRate constant {b.flow_rate}; value uniform {velocity};"
         if b.kind in ("pressure_inlet","pressure_outlet"):return "type pressureInletOutletVelocity; value uniform (0 0 0);"
@@ -37,6 +39,9 @@ def boundary_field(spec,b,field):
         if b.kind=="slip":return "type slip;"
         return f"type freestream; freestreamValue uniform {velocity}; value uniform {velocity};"
     if field=="p":
+        # v2606 freestreamPressure normalizes the freestream velocity and is
+        # undefined at rest. A quiescent reservoir is an open total-pressure BC.
+        if ambient:return f'type totalPressure; p0 uniform {p}; value uniform {p};'
         if b.kind=="pressure_outlet":return f"type fixedValue; value uniform {p};"
         if b.kind=="pressure_inlet":return f"type totalPressure; p0 uniform {p}; value uniform {p};"
         if b.kind=="freestream":return f"type freestreamPressure; freestreamValue uniform {p}; value uniform {p};"
@@ -171,15 +176,21 @@ relaxationFactors {{ fields {{ p 0.3; }} equations {{ U 0.7; k 0.7; omega 0.7; }
     force_patches=[b.patch for b in spec.boundaries if b.patch in patches and b.kind in {"wall","moving_wall","rotating_wall"}]
     def force_function(name,selection):
         return f'''{name} {{ type forces; libs ("libforces.so"); patches ({' '.join(selection)}); rho rhoInf; rhoInf {spec.fluid.density}; pRef 0; CofR {vector(spec.references.origin)}; log true; writeControl timeStep; writeInterval 1; }}'''
-    functions=force_function("loads",force_patches)
+    load_selection=spec.use_case.force_patches if spec.use_case and spec.use_case.force_patches else force_patches
+    functions=force_function("loads",load_selection)
     for p in force_patches:functions+="\n"+force_function("load_"+p,[p])
     if spec.rotation.enabled:functions+="\n"+force_function("rotorLoads",spec.rotation.patches)
     functions+='\nresiduals { type solverInfo; libs ("libutilityFunctionObjects.so"); fields (p U); writeControl timeStep; writeInterval 1; }'
     if spec.flow.turbulence!="laminar":functions+='\nyPlus { type yPlus; libs ("libfieldFunctionObjects.so"); writeControl writeTime; }'
+    if spec.mode=='internal':
+        functions+=f'\ntotalPressureField {{ type pressure; libs (fieldFunctionObjects); mode total; result gustsimTotalPressure; rho rhoInf; rhoInf {spec.fluid.density}; pRef 0; executeControl timeStep; executeInterval 1; writeControl timeStep; writeInterval 1; }}'
     for b in spec.boundaries:
         if b.kind in {"velocity_inlet","flow_inlet","pressure_inlet","pressure_outlet","freestream"}:
             functions+=f'\nflux_{b.patch} {{ type surfaceFieldValue; libs ("libfieldFunctionObjects.so"); regionType patch; name {b.patch}; operation sum; fields (phi); writeFields false; writeControl timeStep; writeInterval 1; }}'
             functions+=f'\npressure_{b.patch} {{ type surfaceFieldValue; libs ("libfieldFunctionObjects.so"); regionType patch; name {b.patch}; operation areaAverage; fields (p); writeFields false; writeControl timeStep; writeInterval 1; }}'
+            if spec.mode=='internal':
+                functions+=f'\ntotalpressure_{b.patch} {{ type surfaceFieldValue; libs (fieldFunctionObjects); regionType patch; name {b.patch}; operation weightedAverage; weightField phi; fields (gustsimTotalPressure); writeFields false; writeControl timeStep; writeInterval 1; }}'
+                functions+=f'\nabsoluteFlux_{b.patch} {{ type surfaceFieldValue; libs (fieldFunctionObjects); regionType patch; name {b.patch}; operation sumMag; fields (phi); writeFields false; writeControl timeStep; writeInterval 1; }}'
     write(folder,"system/controlDict",f'''application simpleFoam;
 startFrom startTime; startTime 0; stopAt endTime; endTime {spec.solver.iterations}; deltaT 1;
 writeControl timeStep; writeInterval {spec.solver.write_interval}; purgeWrite 0;

@@ -8,4 +8,7 @@ def create(case,origin):
     plane=vtk.vtkPlane();plane.SetOrigin(*origin);plane.SetNormal(0,1,0)
     cut=vtk.vtkCutter();cut.SetInputConnection(reader.GetOutputPort());cut.SetCutFunction(plane);cut.Update()
     flatten=vtk.vtkCompositeDataGeometryFilter();flatten.SetInputConnection(cut.GetOutputPort());flatten.Update()
-    writer=vtk.vtkXMLPolyDataWriter();writer.SetFileName(str(case/'mesh-preview.vtp'));writer.SetInputData(flatten.GetOutput());writer.SetDataModeToBinary();writer.Write()
+    if flatten.GetOutput().GetNumberOfCells()==0:
+        raise ValueError('Mesh section is empty; check the fluid point and retained volume')
+    writer=vtk.vtkXMLPolyDataWriter();writer.SetFileName(str(case/'mesh-preview.vtp'));writer.SetInputData(flatten.GetOutput());writer.SetDataModeToBinary()
+    if not writer.Write(): raise ValueError('Mesh preview could not be written')

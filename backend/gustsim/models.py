@@ -143,6 +143,13 @@ class Primitive(Model):
             raise ValueError("Rotating regions must be cylinders")
         return self
 
+class UseCase(Model):
+    kind: Literal['pipe', 'aerodynamics', 'propeller']
+    version: Literal[1] = 1
+    confirmed: bool = False
+    force_patches: list[str] = Field(default_factory=list)
+    references_confirmed: bool = False
+
 class SimulationSpec(Model):
     schema_version: Literal[1] = 1
     name: str = Field(default="Untitled study", min_length=1, max_length=120)
@@ -157,6 +164,7 @@ class SimulationSpec(Model):
     solver: Solver = Field(default_factory=Solver)
     references: References = Field(default_factory=References)
     regions: list[Primitive] = Field(default_factory=list)
+    use_case: UseCase | None = None
 
     @model_validator(mode="after")
     def unique_patches(self):
@@ -190,8 +198,39 @@ class ViewSpec(Model):
     seed_radius: float = Field(default=0.2, gt=0)
     resolution: int = Field(default=100, ge=2, le=2000)
     color_range: tuple[float, float] | None = None
+    patches: list[str] = Field(default_factory=list)
 
-    @field_validator("normal")
+    @field_validator('normal', check_fields=False)
+    @classmethod
+    def nonzero_normal(cls, v):
+        if sum(x*x for x in v) < 1e-12: raise ValueError('Normal must be nonzero')
+        return v
+
+class PresetRequest(Model):
+    geometry_id: str = Field(pattern=r'^[a-f0-9]{32}$')
+    kind: Literal['pipe', 'aerodynamics', 'propeller']
+    fluid: Literal['air', 'water'] = 'air'
+    turbulence: Literal['kOmegaSST', 'laminar'] = 'kOmegaSST'
+    speed: float = Field(default=10, ge=0)
+    direction: Vec3 = (1, 0, 0)
+    lift_axis: Vec3 = (0, 0, 1)
+    inlet: str = ''
+    outlet: str = ''
+    driving: Literal['flow', 'speed', 'pressure'] = 'flow'
+    flow_rate: float = Field(default=.01, gt=0)
+    inlet_pressure_pa: float = 100
+    outlet_pressure_pa: float = 0
+    patches: list[str] = Field(default_factory=list)
+    origin: Vec3 = (0, 0, 0)
+    axis: Vec3 = (1, 0, 0)
+    rpm: float = 2000
+
+class RotorSuggestion(Model):
+    patches: list[str] = Field(min_length=1)
+    origin: Vec3
+    axis: Vec3
+
+    @field_validator("axis")
     @classmethod
     def nonzero(cls, v):
         if sum(x*x for x in v) < 1e-12:

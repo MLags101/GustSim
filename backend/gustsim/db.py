@@ -74,7 +74,7 @@ def run(identifier):
 def runs(compact=False):
     with connection() as c:
         if compact:
-            return [decode(r) for r in c.execute("SELECT id,created,updated,status,stage,kind,spec,study_id,parent_id,cancel,error,json_remove(result,'$.history','$.residuals','$.rotor_history','$.components') AS result FROM runs ORDER BY created DESC LIMIT 200")]
+            return [decode(r) for r in c.execute("SELECT id,created,updated,status,stage,kind,spec,study_id,parent_id,cancel,error,json_remove(result,'$.history','$.residuals','$.rotor_history','$.components','$.projected_history','$.rotor_load_history') AS result FROM runs ORDER BY created DESC LIMIT 200")]
         return [decode(r) for r in c.execute("SELECT * FROM runs ORDER BY created DESC LIMIT 200")]
 
 def enqueue(spec, kind="solve", study_id=None, parent_id=None, initial_status="queued"):

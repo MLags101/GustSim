@@ -46,7 +46,7 @@ def validate(spec: SimulationSpec):
         errors.append("CAD solid validity check failed")
     warnings.append("Triangle self-intersections are not certified; inspect the geometry and generated mesh")
     kinds={b.kind for b in spec.boundaries}
-    if not (kinds & {"velocity_inlet","flow_inlet","pressure_inlet","freestream"}) or "pressure_outlet" not in kinds:
+    if not (kinds & {"velocity_inlet","flow_inlet","pressure_inlet","freestream"}) or not ("pressure_outlet" in kinds or spec.mode != 'internal' and 'freestream' in kinds):
         errors.append("Assign an inlet and at least one pressure outlet")
     low,high=np.asarray(spec.domain.minimum),np.asarray(spec.domain.maximum)
     bounds=np.asarray(meta["bounds"])
@@ -61,10 +61,24 @@ def validate(spec: SimulationSpec):
             errors.append("External fluid point lies inside the solid; move it into the surrounding fluid")
     if spec.mode=="internal" and diag["components"] != 1:
         errors.append("Internal mode requires one connected closed fluid envelope; isolate inner walls and cap the openings")
+    if spec.use_case:
+        if not spec.use_case.confirmed:
+            errors.append('Confirm inferred dimensions, fluid point, and reference directions in the guided setup preview')
+        if not set(spec.use_case.force_patches) <= patches:
+            errors.append('Force selection references unknown surfaces; reselect the components')
+        if any(b.patch in spec.use_case.force_patches and b.kind not in {'wall','moving_wall','rotating_wall'} for b in spec.boundaries):
+            errors.append('Force-bearing surfaces must have wall boundary conditions')
+        if spec.use_case.kind == 'pipe' and (spec.mode != 'internal' or sum(b.kind in {'velocity_inlet','flow_inlet','pressure_inlet'} for b in spec.boundaries)!=1 or sum(b.kind=='pressure_outlet' for b in spec.boundaries)!=1):
+            errors.append('Guided pipe analysis requires one inlet and one outlet in internal mode')
     r=spec.rotation
     if r.enabled:
         if not set(r.patches+r.stationary_patches)<=patches:
             errors.append("Rotation references unknown surfaces")
+        parents = {p.get('parent_id') for p in meta.get('parts', [])}
+        for part in meta.get('parts', []):
+            chosen = set(part['patches']) & set(r.patches)
+            if part.get('id') not in parents and chosen and chosen != set(part['patches']):
+                errors.append('Rotor selection includes only part of component '+part['name']+'; select all its surfaces')
         for b in spec.boundaries:
             if b.patch in r.patches and b.kind not in {"wall"}:
                 errors.append("MRF rotor surfaces must use wall boundaries")
@@ -92,6 +106,7 @@ def validate(spec: SimulationSpec):
         warnings.append("Wall-resolved treatment usually requires more layers; verify first-cell y+ and layer coverage")
     if spec.flow.speed==0:
         warnings.append("Freestream force coefficients are undefined at zero reference speed")
-    return {"valid":not errors,"errors":errors,"warnings":warnings,
+    from .workflow import enrich
+    return enrich({"valid":not errors,"errors":errors,"warnings":warnings,
             "reynolds":spec.fluid.density*max_speed*spec.references.length/spec.fluid.dynamic_viscosity,
-            "estimated_mach":max_speed/spec.fluid.speed_of_sound,"validation_status":"experimental_validation_pending"}
+            "estimated_mach":max_speed/spec.fluid.speed_of_sound,"validation_status":"experimental_validation_pending"}, spec, meta)

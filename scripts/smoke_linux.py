@@ -3,11 +3,11 @@ import json
 import argparse
 import numpy as np
 from gustsim import db,geometry,validation,config
-from gustsim.models import Primitive, Boundary, Rotation
+from gustsim.models import Primitive, Boundary, Rotation, UseCase
 from gustsim.worker import process_job
 
 db.initialize()
-parser=argparse.ArgumentParser();parser.add_argument('--mode',choices=['external','internal','rotor'],default='external');parser.add_argument('--turbulent',action='store_true');parser.add_argument('--processes',type=int,default=1);args=parser.parse_args()
+parser=argparse.ArgumentParser();parser.add_argument('--mode',choices=['external','internal','rotor'],default='external');parser.add_argument('--turbulent',action='store_true');parser.add_argument('--processes',type=int,default=1);parser.add_argument('--static',action='store_true',help='Rotor in quiescent fluid with open ambient boundaries and automatic views');args=parser.parse_args()
 g=geometry.add_primitive(Primitive(shape='cylinder' if args.mode=='internal' else 'sphere',name='smoke_'+args.mode,radius=.1,length=.4,role='enclosure' if args.mode=='internal' else 'solid'))
 s=validation.defaults(g['id']);s.name='Sphere · runtime smoke test'
 s.flow.speed=.01;s.flow.turbulence='laminar';s.mesh.base_cells=20;s.mesh.surface_level=2;s.mesh.feature_level=2;s.mesh.layers=0
@@ -23,7 +23,19 @@ if args.mode=='internal':
         s.boundaries.append(Boundary(patch=patch['name'],kind=kind))
 if args.mode=='rotor':
     s.mode='rotor';s.rotation=Rotation(enabled=True,patches=[p['name'] for p in g['patches']],radius=.15,length=.3,blade_radius=.101,rpm=10)
+    if args.static:
+        s.flow.speed=0;s.rotation.rpm=-10
+        for b in s.boundaries:
+            if b.patch in validation.DOMAIN_PATCHES:b.kind='freestream'
+        s.use_case=UseCase(kind='propeller',confirmed=True,force_patches=s.rotation.patches)
 job=db.enqueue(s.model_dump());db.claim();process_job(job)
 r=db.run(job['id'])
 print(json.dumps({'id':r['id'],'status':r['status'],'stage':r['stage'],'error':r['error'],'metrics':r['result'].get('metrics'),'fields_available':r['result'].get('fields_available')},indent=2))
 if r['status']!='completed':raise SystemExit(1)
+if args.static:
+    assert r['result']['metrics']['fluid_torque_nm'] is not None
+    assert r['result']['metrics']['efficiency'] is None
+    for _ in range(2):
+        view=db.claim();assert view and view['kind']=='view';process_job(view)
+        assert db.run(view['id'])['status']=='completed',db.run(view['id'])['error']
+    print('Both automatic views completed on the static rotor solution')

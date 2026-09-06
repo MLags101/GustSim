@@ -88,7 +88,7 @@ def test_api_import_compile_and_invalid_origin():
 def test_mesh_reuse_compares_json_roundtrip_and_rejects_changed_physics():
     with TestClient(app) as client:
         job=make_job();spec=job['spec']
-        mesh=db.enqueue(spec,'mesh');db.update(mesh['id'],status='completed')
+        mesh=db.enqueue(spec,'mesh');db.update(mesh['id'],status='completed',result={'mesh_check':'passed'})
         db.heartbeat()
         spec['solver']['iterations']=50
         response=client.post('/api/runs?mesh_run_id='+mesh['id'],json=spec)

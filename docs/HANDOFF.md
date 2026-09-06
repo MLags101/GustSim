@@ -22,6 +22,7 @@ For development, `compose.dev.yaml` mounts Python source and scripts. Launch wit
 
 - `backend/gustsim/models.py`: typed SI configuration, validation of identifiers/numerics/axes.
 - `geometry.py`: STEP XDE import, STL grouping, immutable NPZ mesh revisions, primitive generation, planar caps, conservative repair, point containment.
+- `workflow.py`, `presets.py`, `analysis.py`: shared configuration identity, structured readiness and mesh evidence, guided setup previews, signed measurements and durable automatic views.
 - `validation.py` and `foam.py`: geometric/physics preflight and OpenFOAM dictionary generation. MRF and refinement cylinders are virtual regions, never solid STL walls.
 - `db.py`, `api.py`, `worker.py`: durable run records, API/SSE, single worker lock, cancellation/time/memory limits, retry/recovery. `LocalExecutor` is the future remote-worker adapter boundary.
 - `postprocess.py`, `mesh_preview.py`, `quality.py`, `exports.py`: actual ParaView/VTK processing, quality evidence, scientific formats, and reproducible bundles.
@@ -41,13 +42,21 @@ For development, `compose.dev.yaml` mounts Python source and scripts. Launch wit
 - `checkMesh -allGeometry` reports concave cells even on otherwise acceptable snappy meshes. The hard gate uses explicit mesh-quality limits; extended diagnostics are preserved and cause a review finding rather than being hidden.
 - Default result surfaces must select object boundary patches; extracting all regions shows the outer computational box and hides the object.
 
+## Guided workflow implementation (2026-09-06)
+
+The six stages are Geometry → Setup → Mesh → Run → Results → Export. Geometry preparation partitions STEP components before welding and records patch mappings on immutable revisions. Guided presets preview typed settings; prior configurations remain Custom. Mesh and selected solution references are separate, and API/worker mesh reuse shares one conservative configuration identity. Warnings are acknowledged against that identity; numerical quality and experimental validation remain separate.
+
+The default views use the durable extraction queue and deterministic per-run IDs. Measurements use full solver reductions before display interpolation. Pipe total pressure is emitted by OpenCFD's pressure function object in pascals, then reduced with phi weights. Static rotor far-field boundaries use totalPressure / pressureInletOutletVelocity: the freestreamPressure condition divides by zero at zero freestream in the pinned v2606 runtime. Do not restore it for still-air cases.
+
+Run `python scripts/verify_guided.py` against the local Compose app to reproduce four small reviewed-mesh workflows and check automatic views and full exports. These smoke cases are preserved in the data volume and do not meet the benchmark acceptance gates.
+
 ## Remaining engineering priorities
 
 1. **Complete scientific validation before an engineering release.** Real runtime smoke tests pass, but the requested ≤2% pipe/Couette, NACA 0012 reference comparison, ≤10% PPTC, three-grid and domain-sensitivity acceptance campaigns are not yet executed. The app intentionally retains `experimental_validation_pending`. Add versioned authentic fixtures and measured reports under `benchmarks/`; do not relax tolerances to claim a pass.
-2. **Geometry robustness.** Triangle self-intersections are reported as untested. STEP currently preserves top-level names and face groups; complete nested assembly naming, CAD repair beyond tessellated conservative operations, and general internal-volume extraction need expansion. Internal import is a guided isolate-inner-walls/cap-planar-openings workflow. Intersecting physical primitives are not Boolean-unioned automatically.
-3. **Quality and usability depth.** Add quantitative achieved-layer coverage and y+ acceptance thresholds for each validated template, make mesh/domain/rotor regions visible as editable overlays, and improve multi-surface picking/highlighting for large assemblies. Wall-resolved presets require dedicated validation. Automatically reconcile rotor geometry selection with disconnected bodies and overlapping stationary geometry more thoroughly.
+2. **Geometry robustness.** Triangle self-intersections are reported as untested. STEP now preserves nested assembly names, repeated instance identifiers and accumulated SI placements. CAD repair beyond tessellated conservative operations and general internal-volume extraction still need expansion. Internal import is a guided isolate-inner-walls/cap-planar-openings workflow. Intersecting physical primitives are not Boolean-unioned automatically.
+3. **Quality and usability depth.** Add quantitative achieved-layer coverage and y+ acceptance thresholds for each validated template, profile component selection/highlighting for very large assemblies. Domain/rotor overlays, component selection and mesh review now exist. Wall-resolved presets require dedicated validation. Automatically reconcile rotor geometry selection with disconnected bodies and overlapping stationary geometry more thoroughly.
 4. **Large-data behavior.** Browser extracts have a 40 MB budget, run lists omit dense histories, and run-detail plots are bounded. Large CAD import, topology inspection, and full-volume HDF5/ZIP generation still need workload-specific memory/time profiling. Consider moving heavy CAD preparation/export jobs into the durable queue.
-5. **Complete browser interaction QA.** TypeScript and production builds pass; the preview was opened, but no full automated browser journey was executed. The optional WebMCP registry is feature-detected; it has not been validated with a supported WebMCP browser context.
+5. **Complete browser interaction QA.** TypeScript and production builds pass. Interactive browser QA covered preparation, a guided external-flow solve, mesh review, automatic views, export, resizing, hidden panels and reload recovery; see VALIDATION.md. Maintain a repeatable browser regression suite, including interruption/recovery paths. The optional WebMCP registry is feature-detected; it has not been validated with a supported WebMCP browser context.
 
 Do not extend into public SaaS, billing, remote rendering, free surfaces, or transient AMI until the basic numerical acceptance work is complete. UI polish must not obscure unvalidated physics.
 

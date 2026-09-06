@@ -19,6 +19,9 @@ def main():
     regions=list(reader.MeshRegions.Available)
     geometry=json.loads((case/'geometry.json').read_text())
     surface_names={p['name'] for p in geometry['patches']}
+    if request.get('patches'):
+        if not set(request['patches']) <= surface_names: raise ValueError('Extraction references unknown surfaces')
+        surface_names=set(request['patches'])
     surface_regions=[r for r in regions if r.split('/')[-1] in surface_names]
     reader.MeshRegions=surface_regions if request['kind']=='surface' and request.get('field')!='vorticity' else ['internalMesh']
     selected_fields=[f for f in ("p","U","yPlus","k","omega") if f in reader.CellArrays.Available]

@@ -49,6 +49,17 @@ def stability(history,key):
     denominator=max(float(np.linalg.norm(mean)),1e-12)
     return float(np.max(np.linalg.norm(values-mean,axis=1))/denominator)
 
+
+def rotor_load(row, spec):
+    r=spec.rotation
+    if any(v is None for v in row['moment']):return None
+    force=np.asarray(row['force'])
+    moment=np.asarray(row['moment'])-np.cross(np.asarray(r.origin)-np.asarray(spec.references.origin),force)
+    fluid_torque=float(moment@r.axis)
+    driving=-fluid_torque*np.sign(r.rpm)
+    return {'iteration':row['iteration'],'thrust_n':float(force@spec.references.thrust_axis),
+            'fluid_torque_nm':fluid_torque,'torque_nm':driving,'shaft_power_w':driving*abs(r.rpm)*math.pi/30}
+
 def analyze(case:Path,spec:SimulationSpec):
     text=(case/"logs"/"solve.log").read_text(errors="replace") if (case/"logs"/"solve.log").exists() else ""
     residuals=parse_log(text)
@@ -70,6 +81,8 @@ def analyze(case:Path,spec:SimulationSpec):
         if throughput>1e-12:imbalance=abs(sum(fluxes.values()))/throughput
     steady=stability(history,"force")
     rotor_history=force_history(case,"rotorLoads") if spec.rotation.enabled else []
+    projected_history=[{'iteration':row['iteration'],'drag_n':float(np.asarray(row['force'])@spec.references.drag_axis),'lift_n':float(np.asarray(row['force'])@spec.references.lift_axis)} for row in history]
+    rotor_load_history=[value for row in rotor_history if (value:=rotor_load(row,spec)) is not None]
     torque_steady=stability(rotor_history,"moment") if spec.rotation.enabled else None
     mesh_log=(case/"logs"/"check.log").read_text(errors="replace") if (case/"logs"/"check.log").exists() else ""
     cell_match=re.search(r"\bcells:\s+(\d+)",mesh_log)
@@ -93,27 +106,29 @@ def analyze(case:Path,spec:SimulationSpec):
         force=np.asarray(history[-1]["force"])
         side=np.cross(spec.references.lift_axis,spec.references.drag_axis)
         metrics.update(force_n=force.tolist(),moment_nm=history[-1]["moment"],drag_n=float(force@spec.references.drag_axis),lift_n=float(force@spec.references.lift_axis),side_force_n=float(force@side))
-        if q>0:
+        if q>0 and (not spec.use_case or spec.use_case.references_confirmed):
             metrics.update(cd=metrics["drag_n"]/(q*spec.references.area),cl=metrics["lift_n"]/(q*spec.references.area))
-    if rotor_history:
-        h=rotor_history[-1];r=spec.rotation
-        if all(v is not None for v in h["moment"]):
-            # Forces/moments are fluid loads on the rotor. Shift to rotor origin.
-            force=np.asarray(h["force"])
-            moment=np.asarray(h["moment"])-np.cross(np.asarray(r.origin)-np.asarray(spec.references.origin),force)
-            thrust=float(force@spec.references.thrust_axis)
-            torque=-float(moment@r.axis)*np.sign(r.rpm)
-            n=abs(r.rpm)/60;diameter=2*r.blade_radius
-            power=torque*2*math.pi*n
-            advance=-float(np.asarray(spec.flow.velocity())@spec.references.thrust_axis)
-            metrics.update(thrust_n=thrust,torque_nm=torque,shaft_power_w=power,ct=thrust/(spec.fluid.density*n*n*diameter**4),cq=torque/(spec.fluid.density*n*n*diameter**5),advance_ratio=advance/(n*diameter),efficiency=thrust*advance/power if power>0 and advance>0 and thrust>0 else None)
+    if rotor_load_history and rotor_load_history[-1]['iteration']==rotor_history[-1]['iteration']:
+        loads=rotor_load_history[-1];r=spec.rotation
+        thrust=loads['thrust_n'];torque=loads['torque_nm']
+        metrics['fluid_torque_nm']=loads['fluid_torque_nm']
+        n=abs(r.rpm)/60;diameter=2*r.blade_radius
+        power=torque*2*math.pi*n
+        advance=-float(np.asarray(spec.flow.velocity())@spec.references.thrust_axis)
+        metrics.update(thrust_n=thrust,torque_nm=torque,shaft_power_w=power,ct=thrust/(spec.fluid.density*n*n*diameter**4),cq=torque/(spec.fluid.density*n*n*diameter**5),advance_ratio=advance/(n*diameter),efficiency=thrust*advance/power if power>0 and advance>0 and thrust>0 else None)
     inlet=[pressures[b.patch] for b in spec.boundaries if b.kind in {"velocity_inlet","flow_inlet","pressure_inlet"} and b.patch in pressures]
     outlet=[pressures[b.patch] for b in spec.boundaries if b.kind=="pressure_outlet" and b.patch in pressures]
     metrics["pressure_drop_pa"]=inlet[0]-outlet[0] if spec.mode=='internal' and len(inlet)==len(outlet)==1 else None
+    from .analysis import pipe_metrics, definitions
+    reason=''
+    if spec.mode=='internal':
+        pipe,extra,reason=pipe_metrics(case,spec,fluxes,pressures)
+        metrics.update(pipe);findings.extend(extra)
     numerical=all(f["status"]=="pass" for f in findings if f["code"]!="experimental_validation")
     components={b.patch:force_history(case,"load_"+b.patch)[-1] for b in spec.boundaries if force_history(case,"load_"+b.patch)}
     return {"numerical_status":"checks_passed" if numerical else "review_required","validation_status":"experimental_validation_pending",
             "termination":"converged" if converged else "iteration_limit_or_unconfirmed", "findings":findings,"metrics":metrics,
             "residuals":residuals,"history":history,"rotor_history":rotor_history,"components":components,
+            'projected_history':projected_history,'rotor_load_history':rotor_load_history,
             "mass_imbalance":imbalance,"force_variation":steady,"boundary_flux_m3s":fluxes,"boundary_pressure_pa":pressures,
-            "cell_count":int(cell_match.group(1)) if cell_match else None}
+            "cell_count":int(cell_match.group(1)) if cell_match else None, 'analysis':definitions(spec,metrics,reason)}

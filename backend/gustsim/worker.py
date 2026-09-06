@@ -11,7 +11,7 @@ import sys
 import threading
 import time
 import psutil
-from . import config, db, foam, quality
+from . import config, db, foam, quality, workflow
 from .models import SimulationSpec
 
 class Cancelled(Exception):pass
@@ -114,6 +114,7 @@ def process_job(job,executor=None):
         if job.get('parent_id') and job['kind']=='solve':
             parent=db.run(job['parent_id'])
             if parent['kind']=='mesh' and parent['status']=='completed':
+                workflow.require_mesh(parent,spec)
                 source=config.DATA/'runs'/parent['id']
                 shutil.copytree(source/'constant/polyMesh',root/'constant/polyMesh')
                 reused=True
@@ -121,20 +122,34 @@ def process_job(job,executor=None):
         commands=[] if reused else [(['blockMesh'],'background'),(['surfaceFeatureExtract'],'features'),(['snappyHexMesh','-overwrite'],'meshing')]
         commands += [(['checkMesh','-meshQuality'],'check'),(['checkMesh','-allTopology','-allGeometry'],'mesh_diagnostics')]
         for command,stage in commands:
-            executor.run(identifier,command,root,stage,timeout)
+            try: executor.run(identifier,command,root,stage,timeout)
+            except RuntimeError:
+                if stage!='mesh_diagnostics' or 'Failed ' not in (root/'logs/mesh_diagnostics.log').read_text(errors='replace'): raise
+                db.event(identifier,{'stage':stage,'message':'Extended diagnostics require review; explicit quality gate is evaluated separately'})
         mesh_log=(root/'logs/check.log').read_text(errors='replace')
-        if 'Mesh OK.' not in mesh_log:raise RuntimeError('Mesh quality check did not pass; solving was blocked')
         # Verify the mesh retained the same patch contract as the source geometry.
         import re
         boundary=(root/'constant/polyMesh/boundary').read_text(errors='replace')
         actual=set(re.findall(r'^\s*([A-Za-z][A-Za-z0-9_]*)\s*\n\s*\{',boundary,re.M))-{'FoamFile'}
         expected={b.patch for b in spec.boundaries}
-        if actual!=expected:raise RuntimeError(f'Meshed boundary mismatch: missing {sorted(expected-actual)}, unexpected {sorted(actual-expected)}')
+        boundary_ok=actual==expected and not re.search(r'\bnFaces\s+0\s*;',boundary)
         from .mesh_preview import create as mesh_preview
-        mesh_preview(root,[(a+b)/2 for a,b in zip(spec.domain.minimum,spec.domain.maximum)])
+        preview_ok=False
+        try:
+            mesh_preview(root,list(spec.domain.fluid_point) if spec.mode=='internal' else [(a+b)/2 for a,b in zip(spec.domain.minimum,spec.domain.maximum)])
+            preview_ok=True
+        except Exception as e:
+            db.event(identifier,{'stage':'mesh_preview','message':str(e),'level':'warning'})
         cell_match=re.search(r'\bcells:\s+(\d+)',mesh_log)
-        db.update(identifier,result={'case_available':True,'mesh_available':True,'fields_available':False,'mesh_check':'passed','cell_count':int(cell_match.group(1)) if cell_match else None})
-        if spec.rotation.enabled:executor.run(identifier,['topoSet'],root,'rotation',timeout)
+        rotation_ok=not spec.rotation.enabled
+        if spec.rotation.enabled:
+            executor.run(identifier,['topoSet'],root,'rotation',timeout)
+            zone_text=(root/'constant/polyMesh/cellZones').read_text(errors='replace')
+            rotation_ok=bool(re.search(r'\brotor\s*\{[^}]*cellLabels\s+(?:List<label>\s+)?[1-9]\d*\s*\(',zone_text,re.S))
+        summary=workflow.mesh_evidence(root,spec,boundary_ok,preview_ok,rotation_ok)
+        mesh_pass='Mesh OK.' in mesh_log and boundary_ok and rotation_ok
+        db.update(identifier,result={'case_available':True,'mesh_available':preview_ok,'fields_available':False,'mesh_check':'passed' if mesh_pass else 'failed','cell_count':int(cell_match.group(1)) if cell_match else None,'mesh_summary':summary})
+        if not mesh_pass:raise RuntimeError('Mesh quality, boundary, or rotor-zone check failed; solving was blocked. Inspect the mesh summary and logs.')
         if job['kind']=='mesh':
             executor.run(identifier,['foamToVTK','-constant','-ascii'],root,'mesh_export',timeout)
             db.update(identifier,status='completed',stage='completed')
@@ -144,7 +159,7 @@ def process_job(job,executor=None):
             executor.run(identifier,['mpirun','-np',str(spec.solver.processes),'simpleFoam','-parallel'],root,'solve',timeout)
             executor.run(identifier,['reconstructPar','-latestTime'],root,'reconstructing',timeout)
         else:executor.run(identifier,['simpleFoam'],root,'solve',timeout)
-        result=quality.analyze(root,spec);result.update(case_available=True,mesh_available=True,fields_available=False)
+        result=quality.analyze(root,spec);result.update(case_available=True,mesh_available=preview_ok,fields_available=False,mesh_summary=summary,mesh_check='passed')
         db.update(identifier,result=result)
         executor.run(identifier,['pvbatch','--force-offscreen-rendering',str(Path(__file__).with_name('postprocess.py')),str(root),str(root/'results')],root,'postprocessing',timeout)
         summary=json.loads((root/'results/field_summary.json').read_text())
@@ -154,9 +169,19 @@ def process_job(job,executor=None):
             result['numerical_status']='review_required'
         (root/'results/quality.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
         db.update(identifier,status='completed',stage='completed',result=result)
+        if spec.use_case:
+            try:
+                from .analysis import queue_default_views
+                queue_default_views(identifier,spec)
+            except Exception as e:
+                db.event(identifier,{'stage':'automatic_views','level':'warning','message':'Solve preserved; automatic view scheduling failed: '+str(e)})
     except Cancelled:
         db.update(identifier,status='cancelled',stage='cancelled',error='Cancelled by user; completed artifacts preserved')
     except Exception as e:
+        if job['kind'] in ('mesh','solve') and not db.run(identifier)['result'].get('mesh_summary'):
+            with contextlib.suppress(Exception):
+                evidence=workflow.mesh_evidence(root,spec,False,False,False)
+                db.update(identifier,result={**db.run(identifier)['result'],'mesh_summary':evidence,'mesh_check':'failed','mesh_available':False})
         db.update(identifier,status='failed',error=str(e))
         db.event(identifier,{'message':str(e),'level':'error'})
     finally:

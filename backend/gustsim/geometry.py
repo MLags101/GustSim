@@ -111,7 +111,7 @@ def import_step(filename, content):
         from OCP.TDocStd import TDocStd_Document
         from OCP.TCollection import TCollection_ExtendedString
         from OCP.XCAFDoc import XCAFDoc_DocumentTool
-        from OCP.TDF import TDF_LabelSequence
+        from OCP.TDF import TDF_LabelSequence, TDF_Label
         from OCP.TopExp import TopExp_Explorer
         from OCP.TopAbs import TopAbs_FACE, TopAbs_REVERSED
         from OCP.TopoDS import TopoDS
@@ -138,15 +138,43 @@ def import_step(filename, content):
         labels = TDF_LabelSequence()
         tool.GetFreeShapes(labels)
         vertices, faces, groups, names, parts, validity = [], [], [], {}, [], []
+        component_meshes, component_groups = [], []
         group = 0
-        for i in range(1, labels.Length()+1):
-            label = labels.Value(i)
+
+        def label_name(label, fallback):
             name_attr = TDataStd_Name()
-            part_name = name_attr.Get().ToExtString() if label.FindAttribute(TDataStd_Name.GetID_s(), name_attr) else f"Part {i}"
-            shape = tool.GetShape_s(label)
+            return name_attr.Get().ToExtString() if label.FindAttribute(TDataStd_Name.GetID_s(), name_attr) else fallback
+
+        def visit(label, parent_id, path, placement, depth=0):
+            nonlocal group
+            if depth > 64:
+                raise ValueError('STEP assembly nesting exceeds 64 levels')
+            definition = label
+            local = tool.GetLocation_s(label)
+            if tool.IsReference_s(label):
+                definition = TDF_Label()
+                if not tool.GetReferredShape_s(label, definition):
+                    raise ValueError('STEP component reference could not be resolved')
+            world = placement.Multiplied(local)
+            transform = world.Transformation()
+            instance_id = 'component_' + hashlib.sha256('.'.join(map(str,path)).encode()).hexdigest()[:16]
+            part_name = label_name(label, label_name(definition, instance_id))
+            node = {'id': instance_id, 'parent_id': parent_id, 'name': part_name, 'patches': [], 'assembly_path':path,
+                    'placement': [[transform.Value(i,j) for j in range(1,5)] for i in range(1,4)]}
+            # Translation in metadata follows the same SI convention as vertices.
+            for row in node['placement']: row[3] /= 1000
+            parts.append(node)
+            children = TDF_LabelSequence()
+            if tool.IsAssembly_s(definition) and tool.GetComponents_s(definition, children):
+                for child in range(1, children.Length()+1):
+                    visit(children.Value(child), instance_id, path+[child], world, depth+1)
+                node['patches'] = [p for n in parts if n['parent_id'] == instance_id for p in n['patches']]
+                return
+            shape = tool.GetShape_s(definition).Located(TopLoc_Location())
             validity.append(bool(BRepCheck_Analyzer(shape).IsValid()))
             BRepMesh_IncrementalMesh(shape, 0.25, False, 0.35, True).Perform()
             explorer = TopExp_Explorer(shape, TopAbs_FACE)
+            vertices, faces, groups = [], [], []
             part_patches = []
             while explorer.More():
                 face = TopoDS.Face_s(explorer.Current())
@@ -155,7 +183,7 @@ def import_step(filename, content):
                 if tri is not None:
                     offset = len(vertices)
                     for n in range(1, tri.NbNodes()+1):
-                        p = tri.Node(n).Transformed(loc.Transformation())
+                        p = tri.Node(n).Transformed(world.Multiplied(loc).Transformation())
                         vertices.append([p.X()/1000, p.Y()/1000, p.Z()/1000])
                     for n in range(1, tri.NbTriangles()+1):
                         ids = list(tri.Triangle(n).Get())
@@ -163,16 +191,24 @@ def import_step(filename, content):
                             ids.reverse()
                         faces.append([offset+j-1 for j in ids])
                         groups.append(group)
-                    names[group] = f"part_{i}_face_{group}"
+                    names[group] = f"{instance_id}_face_{group}"
                     part_patches.append(names[group])
                     group += 1
                 explorer.Next()
-            parts.append({"name": part_name, "patches": part_patches})
-        mesh = trimesh.Trimesh(vertices, faces, process=False)
-        mesh.merge_vertices()
+            node['patches'] = part_patches
+            if faces:
+                part_mesh = trimesh.Trimesh(vertices, faces, process=False)
+                part_mesh.merge_vertices()
+                component_meshes.append(part_mesh)
+                component_groups.extend(groups)
+        for i in range(1, labels.Length()+1):
+            visit(labels.Value(i), None, [i], TopLoc_Location())
+        if not component_meshes: raise ValueError('STEP contains no triangulatable component bodies')
+        mesh = trimesh.util.concatenate(component_meshes)
+        groups = component_groups
         return save(mesh, groups, names, filename, source=content, confirmed=True,
                     operations=[{"import": "STEP", "target_units": "m"}],
-                    extra={"parts": parts, "cad_valid": all(validity)})
+                    extra={"parts": parts, "cad_valid": all(validity), 'component_schema_version': 1})
 
 def cap(mesh, indices):
     """Triangulate a planar opening with VTK, including concave polygons."""
@@ -209,12 +245,26 @@ def prepare(identifier, request: Prepare):
         groups = groups[keep]
         mesh.remove_unreferenced_vertices()
     if request.repair:
-        keep = mesh.unique_faces() & mesh.nondegenerate_faces()
-        mesh.update_faces(keep)
-        groups = groups[keep]
-        mesh.merge_vertices()
-        mesh.remove_unreferenced_vertices()
-        trimesh.repair.fix_normals(mesh, multibody=True)
+        # Never weld vertices across STEP instance boundaries, including touching bodies.
+        children = {p.get('parent_id') for p in meta.get('parts', [])}
+        leaves = [p for p in meta.get('parts', []) if p.get('id') not in children]
+        partitions = []
+        assigned = np.zeros(len(groups), dtype=bool)
+        for part in leaves:
+            mask = np.isin(groups, [g for g,n in names.items() if n in part['patches']]) & ~assigned
+            if mask.any(): partitions.append(mask); assigned |= mask
+        if (~assigned).any(): partitions.append(~assigned)
+        repaired, mapped = [], []
+        for mask in partitions:
+            piece = mesh.submesh([np.flatnonzero(mask)], append=True, repair=False)
+            labels = groups[mask]
+            piece.merge_vertices()
+            keep = piece.unique_faces() & piece.nondegenerate_faces()
+            piece.update_faces(keep); piece.remove_unreferenced_vertices()
+            trimesh.repair.fix_normals(piece, multibody=True)
+            repaired.append(piece); mapped.extend(labels[keep])
+        mesh = trimesh.util.concatenate(repaired)
+        groups = np.asarray(mapped, dtype=np.int32)
     if request.cap_loops:
         loops, _, _ = boundary_loops(mesh)
         for index in sorted(set(request.cap_loops)):
@@ -231,6 +281,9 @@ def prepare(identifier, request: Prepare):
             raise ValueError("Unknown patch in merge selection")
         if request.merged_name in set(names.values()) - set(request.merge_patches):
             raise ValueError("Merged patch name is already in use")
+        parents={p.get('parent_id') for p in meta.get('parts',[])}
+        owners=[p for p in meta.get('parts',[]) if p.get('id') not in parents and set(p['patches']) & set(request.merge_patches)]
+        if len(owners)>1:raise ValueError('Merge surfaces within one component; component instances must remain separate')
         chosen = [g for g,n in names.items() if n in request.merge_patches]
         group = min(chosen)
         groups[np.isin(groups, chosen)] = group
@@ -239,15 +292,33 @@ def prepare(identifier, request: Prepare):
     transform = trimesh.transformations.euler_matrix(*np.radians(request.rotation_deg), axes="sxyz")
     mesh.apply_transform(transform)
     mesh.apply_translation(request.translation)
+    present = {names[int(g)] for g in np.unique(groups)}
+    mapping = {p['name']: ([request.merged_name] if p['name'] in request.merge_patches else [p['name']] if p['name'] in present else []) for p in meta['patches']}
+    parts = [{**p, 'patches': list(dict.fromkeys(q for n in p['patches'] for q in mapping.get(n, [])))} for p in meta.get('parts', [])]
+    covered = {n for p in parts for n in p['patches']}
+    if parts and present - covered:
+        parts.append({'id': 'prepared_'+db.uid()[:16], 'parent_id': None, 'name': 'Prepared openings', 'patches': sorted(present-covered)})
+    affine = transform.copy();affine[:3,:3] *= UNITS[request.units]*request.scale;affine[:3,3] += request.translation
+    for part in parts:
+        if 'placement' in part:
+            old = np.eye(4);old[:3,:] = part['placement']
+            part['placement'] = (affine @ old)[:3,:].tolist()
+    extra = {'parts': parts, 'patch_mapping': mapping, 'source_revision': identifier,
+             'preparation_before': meta['diagnostics'], 'cad_valid': meta.get('cad_valid'),
+             'component_schema_version': meta.get('component_schema_version', 1)}
     return save(mesh, groups, names, meta["filename"], parent=identifier,
-                confirmed=True, operations=meta["operations"]+[request.model_dump()])
+                confirmed=True, operations=meta["operations"]+[request.model_dump()], extra=extra)
 
 def regroup(identifier, angle):
     meta = db.geometry(identifier)
-    mesh, _ = load(identifier)
+    mesh, old_groups = load(identifier)
     groups = connected_groups(mesh, angle)
-    return save(mesh, groups, {int(g): f"surface_{g}" for g in np.unique(groups)}, meta["filename"],
-                parent=identifier, confirmed=True, operations=meta["operations"]+[{"regroup_angle": angle}])
+    # Preserve an explicit many-to-many mapping; callers must reassign ambiguous patches.
+    names={int(g):f'surface_{g}' for g in np.unique(groups)}
+    mapping={p['name']:[names[int(g)] for g in np.unique(groups[old_groups==p['group']])] for p in meta['patches']}
+    parts=[{**p,'patches':list(dict.fromkeys(q for n in p['patches'] for q in mapping.get(n,[])))} for p in meta.get('parts',[])]
+    return save(mesh, groups, names, meta["filename"], parent=identifier, confirmed=True,
+                operations=meta["operations"]+[{"regroup_angle": angle}],extra={'parts':parts,'patch_mapping':mapping,'cad_valid':meta.get('cad_valid')})
 
 def primitive_mesh(p: Primitive):
     if p.shape == "box":
@@ -270,9 +341,14 @@ def add_primitive(p: Primitive, identifier=None):
     mesh = primitive_mesh(effective)
     groups = connected_groups(mesh)
     names = {int(g): f"{p.name}_{g}" for g in np.unique(groups)}
+    added_names=list(names.values())
+    extra={}
     if identifier:
         base, base_groups = load(identifier)
         meta = db.geometry(identifier)
+        base_parts=meta.get('parts') or [{'id':'original_'+identifier[:16],'parent_id':None,'name':meta['filename'],'patches':[q['name'] for q in meta['patches']]}]
+        extra={'parts':base_parts+[{'id':'primitive_'+db.uid()[:16],'parent_id':None,'name':p.name,'patches':added_names}],
+               'patch_mapping':{q['name']:[q['name']] for q in meta['patches']},'cad_valid':meta.get('cad_valid')}
         shift = int(max(base_groups))+1
         names = {**{q["group"]: q["name"] for q in meta["patches"]}, **{g+shift:n for g,n in names.items()}}
         if len(set(names.values())) != len(names):
@@ -280,13 +356,13 @@ def add_primitive(p: Primitive, identifier=None):
         groups = np.concatenate([base_groups, groups+shift])
         mesh = trimesh.util.concatenate([base, mesh])
     return save(mesh, groups, names, p.name+".stl", parent=identifier, confirmed=True,
-                operations=(db.geometry(identifier)["operations"] if identifier else [])+[p.model_dump()])
+                operations=(db.geometry(identifier)["operations"] if identifier else [])+[p.model_dump()],extra=extra)
 
 def scene(identifier):
     mesh, groups = load(identifier)
     # This response is geometry only; it never contains synthetic CFD fields.
     return {"points": mesh.vertices.ravel().tolist(), "polys": np.column_stack([np.full(len(mesh.faces),3),mesh.faces]).ravel().tolist(),
-            "groups": groups.tolist()}
+            "groups": groups.tolist(), "patches": db.geometry(identifier)["patches"]}
 
 def point_inside(mesh, point):
     import vtk

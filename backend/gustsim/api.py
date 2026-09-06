@@ -6,8 +6,11 @@ from pathlib import Path
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
 from . import config, db, geometry, validation
-from .models import Prepare, Primitive, SimulationSpec, Sweep, ViewSpec
+from .models import Prepare, Primitive, SimulationSpec, Sweep, ViewSpec, PresetRequest, RotorSuggestion
+from . import presets, workflow
 
 @asynccontextmanager
 async def lifespan(app):
@@ -32,6 +35,19 @@ async def missing(request,exc):
 @app.exception_handler(ValueError)
 async def invalid(request,exc):
     return JSONResponse({"detail":str(exc)},status_code=422)
+
+@app.exception_handler(RequestValidationError)
+async def invalid_draft(request,exc):
+    if request.url.path != '/api/validate':
+        return await request_validation_exception_handler(request,exc)
+    controls={'rotation':'rotating-region','domain':'domain-fluid-region','boundaries':'boundary-conditions','mesh':'mesh-resolution','flow':'incident-flow','references':'reference-quantities','use_case':'guided-setup'}
+    findings=[]
+    for i,error in enumerate(exc.errors()):
+        location=[str(v) for v in error['loc'] if v!='body']
+        findings.append({'code':f'input_{i}','stage':'setup','control':controls.get(location[0] if location else '', 'simulation-template'),
+                         'status':'fail','detail':('.'.join(location)+': ' if location else '')+error['msg']})
+    return JSONResponse({'valid':False,'errors':[f['detail'] for f in findings],'warnings':[], 'findings':findings,
+                         'configuration_id':None,'geometry_ready':False,'validation_status':'experimental_validation_pending'})
 
 @app.get("/api/health")
 def health():
@@ -82,22 +98,32 @@ def regroup(identifier:str,angle:float=35):
 @app.post("/api/validate")
 def validate(spec:SimulationSpec):return validation.validate(spec)
 
+@app.post('/api/presets/preview')
+def preset_preview(request:PresetRequest): return presets.generate(request)
+
+@app.post('/api/geometry/{identifier}/rotor-suggestion')
+def rotor_suggestion(identifier:str, request:RotorSuggestion): return presets.rotor_suggestion(identifier,request)
+
 @app.get("/api/runs")
 def runs():return db.runs(compact=True)
 
 @app.post("/api/runs",status_code=202)
-def launch(spec:SimulationSpec,kind:str="solve",mesh_run_id:str|None=None):
+def launch(spec:SimulationSpec,kind:str="solve",mesh_run_id:str|None=None,guided:bool=False,acknowledged:str|None=None):
     if kind not in ("mesh","solve","case"):raise ValueError("Unknown job type")
     report=validation.validate(spec)
     if not report["valid"]:raise ValueError("; ".join(report["errors"]))
+    if guided and any(f['status']=='review' for f in report['findings']) and acknowledged != report['configuration_id']:
+        raise ValueError('Review and acknowledge the setup warnings for this configuration')
+    if guided and kind=='solve' and not mesh_run_id:
+        raise ValueError('Generate and review a compatible mesh before solving')
     if kind!="case" and not db.worker_status()["online"]:
         raise HTTPException(503,"Compute worker is offline. Start the Linux worker before queuing a mesh or solve.")
     if mesh_run_id:
         source=db.run(mesh_run_id)
-        if kind!='solve' or source['kind']!='mesh' or source['status']!='completed':raise ValueError('Select a completed mesh attempt')
-        a=source['spec'].copy();b=spec.model_dump(mode='json')
-        for key in ('name','solver'):a.pop(key,None);b.pop(key,None)
-        if a!=b:raise ValueError('Geometry or physics changed after meshing; generate and review a new mesh')
+        if kind!='solve': raise ValueError('Mesh reuse is only available for a solve')
+        workflow.require_mesh(source,spec)
+        if guided and source['result'].get('reviewed_configuration_id') != report['configuration_id']:
+            raise ValueError('Review this mesh before solving')
     job=db.enqueue(spec.model_dump(),kind,parent_id=mesh_run_id,initial_status='generating' if kind=='case' else 'queued')
     if kind=="case":
         from . import foam
@@ -110,10 +136,29 @@ def launch(spec:SimulationSpec,kind:str="solve",mesh_run_id:str|None=None):
         return db.run(job['id'])
     return job
 
+@app.post('/api/runs/{identifier}/review')
+def review_mesh(identifier:str, configuration_id:str, acknowledge_warnings:bool=False):
+    source=db.run(identifier)
+    workflow.require_mesh(source,source['spec'])
+    if configuration_id != workflow.identity(source['spec']): raise ValueError('Mesh review is outdated')
+    findings=source['result'].get('mesh_summary',{}).get('findings',[])
+    required={'mesh_quality','mesh_boundaries','mesh_preview','mesh_rotation','mesh_extended'}
+    if not required <= {f['code'] for f in findings} or any(f['status'] in ('fail','unavailable') for f in findings) or not source['result'].get('mesh_available') or not (config.DATA/'runs'/identifier/'mesh-preview.vtp').is_file():
+        raise ValueError('Required mesh evidence or preview is unavailable')
+    if any(f['status']=='review' for f in findings) and not acknowledge_warnings:
+        raise ValueError('Acknowledge the extended mesh findings before proceeding')
+    db.update(identifier,result={**source['result'],'reviewed_configuration_id':configuration_id})
+    return db.run(identifier)
+
 @app.get("/api/runs/{identifier}")
 def get_run(identifier:str):
     record=db.run(identifier)
-    for name in ('history','rotor_history','residuals'):
+    root=config.DATA/'runs'/identifier
+    record['result']['export_available']={kind:(root/path).is_file() for kind,path in {
+        'case':'simulation.json','bundle':'simulation.json','vtk':'results/volume.vtu',
+        'hdf5':'results/fields.npz','png':'results/view.png','paraview':'results/view.pvsm'}.items()}
+    record['result']['export_available'].update(csv=bool(record['result'].get('history')),report=bool(record['result']))
+    for name in ('history','rotor_history','residuals','projected_history','rotor_load_history'):
         values=record['result'].get(name,[])
         if len(values)>6000:
             stride=max(1,len(values)//5000)
@@ -128,10 +173,10 @@ def cancel(identifier:str):
     return db.run(identifier)
 
 @app.post("/api/runs/{identifier}/retry",status_code=202)
-def retry(identifier:str):
+def retry(identifier:str,guided:bool=False):
     r=db.run(identifier)
     if r["status"] in ("queued","running"):raise ValueError("Wait for the current attempt to stop")
-    return db.enqueue(r["spec"],r["kind"],r["study_id"],identifier)
+    return db.enqueue(r["spec"],'mesh' if guided and r['kind']=='solve' else r["kind"],r["study_id"],identifier)
 
 @app.get("/api/runs/{identifier}/events")
 async def events(identifier:str,request:Request,after:int=0):
@@ -152,7 +197,7 @@ async def events(identifier:str,request:Request,after:int=0):
     return StreamingResponse(stream(),media_type="text/event-stream",headers={"Cache-Control":"no-cache","X-Accel-Buffering":"no"})
 
 @app.post("/api/studies",status_code=201)
-def study(sweep:Sweep):
+def study(sweep:Sweep,guided:bool=False):
     specs=[]
     for value in sweep.values:
         data=sweep.spec.model_dump()
@@ -162,10 +207,12 @@ def study(sweep:Sweep):
         item=SimulationSpec.model_validate(data)
         report=validation.validate(item)
         if not report["valid"]:raise ValueError("; ".join(report["errors"]))
+        if guided and any(f['status']=='review' for f in report['findings']):
+            raise ValueError('This sweep includes actionable warnings; configure and acknowledge each variant individually')
         specs.append(item.model_dump())
     if not db.worker_status()["online"]:raise HTTPException(503,"Start the compute worker before creating a sweep")
     identifier=db.create_study(sweep.spec.name,sweep.model_dump())
-    return {"id":identifier,"runs":[db.enqueue(s,"solve",identifier) for s in specs]}
+    return {"id":identifier,"runs":[db.enqueue(s,'mesh' if guided else "solve",identifier) for s in specs]}
 
 @app.get("/api/studies")
 def studies():
@@ -207,7 +254,12 @@ def create_view(identifier:str,view:ViewSpec):
 def views(identifier:str):
     db.run(identifier)
     with db.connection() as c:
-        return [{"id":r[0],"spec":json.loads(r[1])} for r in c.execute("SELECT id,spec FROM views WHERE run_id=? ORDER BY created DESC",(identifier,))]
+        items=[{"id":r[0],"spec":json.loads(r[1])} for r in c.execute("SELECT id,spec FROM views WHERE run_id=? ORDER BY created DESC",(identifier,))]
+        jobs=[db.decode(r) for r in c.execute("SELECT * FROM runs WHERE kind='view' AND parent_id=? ORDER BY created DESC",(identifier,))]
+        for item in items:
+            job=next((j for j in jobs if j['spec'].get('view_id')==item['id']),None)
+            item.update(status=job['status'] if job else 'unavailable',error=job['error'] if job else None,automatic=bool(job and job['spec'].get('automatic')))
+        return items
 
 @app.get('/api/runs/{identifier}/views/{view_id}/samples')
 def samples(identifier:str,view_id:str):
