@@ -6,8 +6,13 @@ from .models import SimulationSpec
 
 def identity(spec):
     data = SimulationSpec.model_validate(spec).model_dump(mode='json') if isinstance(spec, dict) else spec.model_dump(mode='json')
-    for key in ('name', 'solver'): data.pop(key, None)
-    return hashlib.sha256(json.dumps(data, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    for key in ('name', 'solver', 'project_id'): data.pop(key, None)
+    # JavaScript JSON drops the sign of zero. It does not change the physics.
+    def canonical(value):
+        if isinstance(value,dict):return {k:canonical(v) for k,v in value.items()}
+        if isinstance(value,list):return [canonical(v) for v in value]
+        return 0.0 if isinstance(value,float) and value==0 else value
+    return hashlib.sha256(json.dumps(canonical(data), sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
 def compatible(source, spec):

@@ -11,6 +11,8 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from . import config, db, geometry, validation
 from .models import Prepare, Primitive, SimulationSpec, Sweep, ViewSpec, PresetRequest, RotorSuggestion
 from . import presets, workflow
+from . import projects
+
 
 @asynccontextmanager
 async def lifespan(app):
@@ -18,6 +20,18 @@ async def lifespan(app):
     yield
 
 app = FastAPI(title="GustSim",version="0.1.0",lifespan=lifespan)
+
+@app.get('/api/projects')
+def list_projects():return projects.listing()
+
+@app.post('/api/projects',status_code=201)
+def new_project(body:dict):return projects.save(db.uid(),body)
+
+@app.get('/api/projects/{identifier}')
+def read_project(identifier:str):return projects.read(identifier)
+
+@app.put('/api/projects/{identifier}')
+def save_project(identifier:str,body:dict):return projects.save(identifier,body)
 
 @app.middleware("http")
 async def local_origin(request: Request, call_next):
@@ -154,6 +168,8 @@ def review_mesh(identifier:str, configuration_id:str, acknowledge_warnings:bool=
 def get_run(identifier:str):
     record=db.run(identifier)
     root=config.DATA/'runs'/identifier
+    from .progress import describe
+    record['progress']=describe(record,root)
     record['result']['export_available']={kind:(root/path).is_file() for kind,path in {
         'case':'simulation.json','bundle':'simulation.json','vtk':'results/volume.vtu',
         'hdf5':'results/fields.npz','png':'results/view.png','paraview':'results/view.pvsm'}.items()}
@@ -286,6 +302,12 @@ def export(identifier:str,kind:str):
     from .exports import export_run
     path=export_run(db.run(identifier),kind)
     return FileResponse(path,filename=path.name)
+
+
+@app.post('/api/mesh/recommend')
+def recommend_mesh(spec:SimulationSpec):
+    from .mesh_guidance import recommend
+    return recommend(spec,db.geometry(spec.geometry_id))
 
 if Path("dist").is_dir():
     app.mount("/",StaticFiles(directory="dist",html=True),name="web")

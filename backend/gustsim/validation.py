@@ -23,6 +23,8 @@ def defaults(identifier):
     spec.boundaries=[Boundary(patch="inlet",kind="velocity_inlet"),Boundary(patch="outlet",kind="pressure_outlet")]
     spec.boundaries += [Boundary(patch=p,kind="freestream") for p in DOMAIN_PATCHES[2:]]
     spec.boundaries += [Boundary(patch=p["name"],kind="wall") for p in meta["patches"]]
+    from .mesh_guidance import recommend
+    spec.mesh.body_level=recommend(spec,meta)['body_level']
     return spec
 
 def validate(spec: SimulationSpec):

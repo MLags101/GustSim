@@ -41,6 +41,8 @@ def main():
         source=Clip(Input=source);source.ClipType='Plane';source.ClipType.Origin=origin;source.ClipType.Normal=normal
     elif kind=='streamlines':
         source=StreamTracer(Input=source,SeedType='Point Cloud');source.Vectors=['POINTS','U'];source.SeedType.Center=origin;source.SeedType.Radius=request.get('seed_radius',0.2);source.SeedType.NumberOfPoints=min(request.get('resolution',100),300)
+        source.IntegrationDirection='BOTH'
+        source.MaximumStreamlineLength=float(np.linalg.norm(np.asarray(spec['domain']['maximum'])-np.asarray(spec['domain']['minimum'])))*2
     elif kind=='glyphs':
         source=Glyph(Input=source,GlyphType='Arrow');source.OrientationArray=['POINTS','U'];source.ScaleArray=['POINTS','U'];source.MaximumNumberOfSamplePoints=min(request.get('resolution',100),2000)
     elif kind=='line':
@@ -48,6 +50,8 @@ def main():
     elif kind=='probe':
         source=ProbeLocation(Input=source);source.ProbeType.Center=origin
     source.UpdatePipeline(time)
+    if source.GetDataInformation().GetNumberOfPoints()==0:
+        raise RuntimeError('This view is empty. Move the streamline seeds into the fluid, enlarge the seed radius, or choose a section that intersects the domain.')
     surf=ExtractSurface(Input=source);surf.UpdatePipeline(time)
     # Convert composite output to one dataset before writing browser PolyData.
     from paraview.simple import MergeBlocks, CellDatatoPointData, Triangulate

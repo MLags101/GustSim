@@ -88,6 +88,11 @@ def compile_case(spec:SimulationSpec,folder:Path):
     write(folder,"system/surfaceFeatureExtractDict","\n".join(f'{p}.stl {{ extractionMethod extractFromSurface; extractFromSurfaceCoeffs {{ includedAngle 150; }} writeObj no; }}' for p in patches))
     geo="\n".join(f"{p}.stl {{ type triSurfaceMesh; name {p}; }}" for p in patches)
     refinements=[]
+    if spec.mesh.body_level:
+        h=max(extent)/spec.mesh.base_cells/2**spec.mesh.body_level
+        a=np.asarray(meta['bounds'][0])-2*h;b=np.asarray(meta['bounds'][1])+2*h
+        geo+=f"\nbodyResolution {{ type searchableBox; min {vector(a)}; max {vector(b)}; }}"
+        refinements.append(f"bodyResolution {{ mode inside; levels ((1e15 {spec.mesh.body_level})); }}")
     # Wake refinement follows the incident flow rather than assuming alpha=beta=0.
     direction=np.asarray(spec.flow.velocity()); direction=direction/max(np.linalg.norm(direction),1e-12)
     center=np.mean(meta["bounds"],axis=0)

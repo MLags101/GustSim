@@ -67,7 +67,6 @@ def generate(request):
         spec.use_case.force_patches = sorted(names-{request.inlet,request.outlet})
     elif request.kind=='aerodynamics':
         if request.speed <= 0: raise ValueError('Travel speed must be positive')
-        if request.fluid != 'air': raise ValueError('The aerodynamics preset uses air')
         if not request.patches: raise ValueError('Select the force-bearing components')
         direction = -unit(request.direction)
         lift = unit(request.lift_axis)
@@ -92,6 +91,8 @@ def generate(request):
         spec.domain.minimum=tuple(lo-length*3-np.maximum(-direction,0)*length*5)
         spec.domain.maximum=tuple(hi+length*3+np.maximum(direction,0)*length*5)
         spec.domain.fluid_point=tuple(np.asarray(spec.domain.minimum)+length*.5)
+    from .mesh_guidance import recommend
+    spec.mesh.body_level=recommend(spec,meta)['body_level']
     spec = SimulationSpec.model_validate(spec.model_dump())
     return {'spec':spec.model_dump(mode='json'), 'report':validation.validate(spec),
             'review':['Confirm model dimensions in metres', 'Confirm the point lies in the intended fluid volume', 'Confirm reference directions and selected surfaces', 'Mesh presets do not guarantee accuracy']}

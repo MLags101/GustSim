@@ -288,12 +288,24 @@ def prepare(identifier, request: Prepare):
         group = min(chosen)
         groups[np.isin(groups, chosen)] = group
         names[group] = request.merged_name
+    if request.component_surfaces and request.merge_patches:
+        raise ValueError('Choose component grouping or an explicit surface merge in separate revisions')
+    component_mapping = {}
+    if request.component_surfaces:
+        parents = {p.get('parent_id') for p in meta.get('parts', [])}
+        for part in meta.get('parts', []):
+            if part.get('id') in parents: continue
+            chosen = [g for g,n in names.items() if n in part['patches'] and g in groups]
+            if not chosen: continue
+            target=min(chosen); new_name=part['id']+'_surface'
+            component_mapping.update({names[g]:new_name for g in chosen})
+            groups[np.isin(groups,chosen)]=target;names[target]=new_name
     mesh.apply_scale(UNITS[request.units] * request.scale)
     transform = trimesh.transformations.euler_matrix(*np.radians(request.rotation_deg), axes="sxyz")
     mesh.apply_transform(transform)
     mesh.apply_translation(request.translation)
     present = {names[int(g)] for g in np.unique(groups)}
-    mapping = {p['name']: ([request.merged_name] if p['name'] in request.merge_patches else [p['name']] if p['name'] in present else []) for p in meta['patches']}
+    mapping = {p['name']: ([component_mapping[p['name']]] if p['name'] in component_mapping else [request.merged_name] if p['name'] in request.merge_patches else [p['name']] if p['name'] in present else []) for p in meta['patches']}
     parts = [{**p, 'patches': list(dict.fromkeys(q for n in p['patches'] for q in mapping.get(n, [])))} for p in meta.get('parts', [])]
     covered = {n for p in parts for n in p['patches']}
     if parts and present - covered:

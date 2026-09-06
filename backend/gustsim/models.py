@@ -85,6 +85,7 @@ class Rotation(Model):
         return self
 
 class Mesh(Model):
+    body_level: int = Field(default=0, ge=0, le=10)
     preset: Literal["draft", "standard", "refined"] = "standard"
     base_cells: int = Field(default=24, ge=8, le=200)
     surface_level: int = Field(default=2, ge=1, le=6)
@@ -151,6 +152,7 @@ class UseCase(Model):
     references_confirmed: bool = False
 
 class SimulationSpec(Model):
+    project_id: str | None = Field(default=None, pattern=r'^[a-f0-9]{32}$')
     schema_version: Literal[1] = 1
     name: str = Field(default="Untitled study", min_length=1, max_length=120)
     geometry_id: str = Field(pattern=r"^[a-f0-9]{32}$")
@@ -178,6 +180,7 @@ class SimulationSpec(Model):
         return self
 
 class Prepare(Model):
+    component_surfaces: bool = False
     units: Literal["m", "mm", "cm", "in"] = "m"
     scale: float = Field(default=1, gt=0, le=1e6)
     rotation_deg: Vec3 = (0, 0, 0)

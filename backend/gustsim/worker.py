@@ -132,11 +132,13 @@ def process_job(job,executor=None):
         boundary=(root/'constant/polyMesh/boundary').read_text(errors='replace')
         actual=set(re.findall(r'^\s*([A-Za-z][A-Za-z0-9_]*)\s*\n\s*\{',boundary,re.M))-{'FoamFile'}
         expected={b.patch for b in spec.boundaries}
-        boundary_ok=actual==expected and not re.search(r'\bnFaces\s+0\s*;',boundary)
+        empty=re.findall(r'([A-Za-z][A-Za-z0-9_]*)\s*\{[^}]*\bnFaces\s+0\s*;',boundary,re.S)
+        boundary_ok=actual==expected and not empty
         from .mesh_preview import create as mesh_preview
         preview_ok=False
         try:
-            mesh_preview(root,list(spec.domain.fluid_point) if spec.mode=='internal' else [(a+b)/2 for a,b in zip(spec.domain.minimum,spec.domain.maximum)])
+            meta=json.loads((root/'geometry.json').read_text())
+            mesh_preview(root,[(a+b)/2 for a,b in zip(*meta['bounds'])])
             preview_ok=True
         except Exception as e:
             db.event(identifier,{'stage':'mesh_preview','message':str(e),'level':'warning'})
@@ -147,6 +149,12 @@ def process_job(job,executor=None):
             zone_text=(root/'constant/polyMesh/cellZones').read_text(errors='replace')
             rotation_ok=bool(re.search(r'\brotor\s*\{[^}]*cellLabels\s+(?:List<label>\s+)?[1-9]\d*\s*\(',zone_text,re.S))
         summary=workflow.mesh_evidence(root,spec,boundary_ok,preview_ok,rotation_ok)
+        if not boundary_ok:
+            missing=sorted(expected-actual)
+            summary['boundary_details']={'missing':missing,'empty':empty,'unexpected':sorted(actual-expected)}
+            for finding in summary['findings']:
+                if finding['code']=='mesh_boundaries':
+                    finding['detail']=f'{len(missing)} surfaces disappeared and {len(empty)} have no faces. Increase local body refinement; thin geometry may be smaller than the cells. For tiny CAD face patches, prepare one surface per component and reassign conditions.'
         mesh_pass='Mesh OK.' in mesh_log and boundary_ok and rotation_ok
         db.update(identifier,result={'case_available':True,'mesh_available':preview_ok,'fields_available':False,'mesh_check':'passed' if mesh_pass else 'failed','cell_count':int(cell_match.group(1)) if cell_match else None,'mesh_summary':summary})
         if not mesh_pass:raise RuntimeError('Mesh quality, boundary, or rotor-zone check failed; solving was blocked. Inspect the mesh summary and logs.')

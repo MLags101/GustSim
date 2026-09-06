@@ -65,3 +65,9 @@ Do not extend into public SaaS, billing, remote rendering, free surfaces, or tra
 Native development uses `data/`; production Compose uses `gustsim_gustsim-data`. The native smoke artifacts under `data/linux-*` are development evidence and are deliberately excluded from the source ZIP. Unit tests use isolated temporary data. Backups must be created with services stopped; restore refuses nonempty targets and unsafe archive entries.
 
 Source transfer packaging: `python scripts/package_source.py` writes `release/gustsim-source.zip`. The ZIP excludes dependencies, environments, private settings, caches and user results. `docs/VALIDATION.md` records verified checks and the difference between runtime success and benchmark acceptance.
+
+## Latest usability work
+
+Added JSON simulation workspaces under `GUSTSIM_DATA/projects`, use-case wizard pages, air/water in every preset, incoming-flow arrows, collapsed advanced settings, phase/iteration progress, camera buttons, three model-centered mesh sections plus boundary view, one-click field views, optional CAD overlays and steady-streamline tracer playback. No database migration or named-volume change.
+
+`mesh_guidance.py` supplies bounded refinement around thin geometry. The supplied propeller previously vanished from a coarse surface mesh; component surface grouping plus local refinement now preserves it, with strict boundary checks intact. The supplied vehicle remains nonmanifold after conservative cleanup and requires CAD repair. See VALIDATION.md for authentic example attempts and limitations. `progress.py`, `projects.py`, `Experience.tsx` and `streamlinePlayback.ts` contain the new workflow support.

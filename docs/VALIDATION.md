@@ -65,3 +65,14 @@ docker compose up -d worker
 ```
 
 `/tmp` smoke data is removed with the disposable container. To retain diagnostic artifacts, provide a separate named test volume and point `GUSTSIM_DATA` into it. Never use the ordinary production data directory for a direct smoke runner while the queue worker is active.
+
+## Usability update and supplied CAD (2026-09-06)
+
+- Propeller: prepared one surface while retaining the component identity; local body refinement level 7 preserves 9,823 rotor boundary faces. Required mesh checks pass at 211,565 cells. Mesh `b3a0dc35513c4f9c98b32bb00447e41e`; SST solve `74a1d6ed9311432c8295ca17e6c96acb` (40 iterations, signed −10 RPM about Y). Three model-centered sections and full boundary preview contain actual volume-mesh cells. Surface, velocity slice, 360 streamline branches with IntegrationTime, and ZIP/HDF5 export verified.
+- Rectangular prism: default prepared SST mesh passes required checks at 8,555 cells. Mesh `28e7f65495ab40a69f3664799366890c`; solve `a5caedf5b1f2455082e6c6a15da70d49` (40 iterations, 0.01 m/s). Automatic views and streamline extraction complete.
+- Extended mesh diagnostics remain review items: propeller has determinant, concavity and interpolation-weight findings; prism has concave-cell findings. Requested layers are not a claim of measured coverage. Both short solutions retain numerical review requirements. No experimental acceptance gate is changed.
+- Vehicle STEP native import: 43 component records, 262,436 triangles, 13,869 CAD face patches. Conservative repair and component grouping reduce this to 42 nonempty surfaces and remove duplicate/degenerate triangles and open edges. 1,064 nonmanifold edges remain; the geometry stays blocked. No vehicle solve or accuracy claim is made.
+- Browser testing caught and fixed a mesh identity bug: JavaScript serializes negative zero as zero. Configuration identity now canonicalizes signed zero so a browser roundtrip does not invalidate a compatible mesh. Old acknowledgments may need a one-time review after this change.
+
+- Current automated checks: 49 pytest tests pass, including air/water in all presets, local refinement, component preparation, independent saved projects, progress calculations and signed-zero compatibility. TypeScript and the production Vite build pass.
+- Browser checks: empty new workspace, saved-project switching and reload recovery; reviewed mesh enables solving; water setup from +Y generates a reviewable preview; streamline/object visibility, side camera, tracer playback and Hide/Show controls work. Cube extracts contain 288 streamline branches, and all four mesh previews plus ZIP/HDF5 export were checked against actual artifacts.

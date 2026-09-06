@@ -7,10 +7,10 @@ A local browser workbench for STEP/STL preparation, single-phase air/water CFD s
 | Workflow | Setup | Automatic analysis |
 |---|---|---|
 | Pipe flow | One prepared passage; flow/speed or inlet-total/outlet-static pressures | Volume/mass flow, static pressure drop, total-pressure and head loss, mass balance |
-| Object moving through air | Stationary body with opposite airflow; arbitrary travel/lift directions | Drag/lift, confirmed-reference coefficients, force histories |
+| Object moving through fluid | Stationary body with opposite air/water flow; arbitrary travel/lift directions | Drag/lift, confirmed-reference coefficients, force histories |
 | Stationary assembly with rotor | Selected assembly components; one MRF region; signed RPM | Thrust, fluid/driving torque, shaft power, load histories |
 
-All three provide pressure surfaces and velocity slices from solved fields. Supported physics is **steady, incompressible, single-phase air/water**, with laminar or k–ω SST turbulence. This is development software; benchmark accuracy and experimental acceptance remain pending.
+All three allow air/water selection and provide pressure surfaces and velocity slices from solved fields. Supported physics is **steady, incompressible, single-phase air/water**, with laminar or k–ω SST turbulence. This is development software; benchmark accuracy and experimental acceptance remain pending.
 
 ## Run on a new machine
 
@@ -30,18 +30,24 @@ The application listens on loopback only. Do not expose it to a shared network u
 
 ## Use the workbench
 
+Start with **New simulation** in the top bar. Name each workspace and switch between saved simulations without replacing their CAD or completed attempts. Drafts, selected mesh and solution are saved in the Docker data volume; the browser remembers the active workspace.
+
 1. **Geometry:** export one assembly STEP with separate, named component bodies and assembled positions preserved, including the rotor. GustSim retains nested components, repeated instances and placements. STL also works with explicit source units. Search, select, hide or isolate components; face selection remains available.
-2. **Setup:** choose pipe flow, an object moving through air, or a stationary assembly with a rotor. Preview the generated settings and confirm dimensions, fluid point, directions and selected surfaces. All settings remain editable. Older configurations load as Custom.
-3. **Mesh:** generate and check the mesh here. Follow named stages, elapsed time and logs. Inspect the actual volume-cell section, required quality checks, boundary preservation and MRF zone findings. Acknowledge actionable findings with **Review mesh & continue**. Failed or unavailable previews are explicit; requested layers are not reported as achieved layers.
+2. **Setup:** choose pipe flow, an object moving through air or water, or a stationary assembly with a rotor. Preview the generated settings and confirm dimensions, fluid point, directions and selected surfaces. All settings remain editable. Older configurations load as Custom.
+3. **Mesh:** generate and check the mesh here. Follow named stages, an estimated progress bar, elapsed time and logs. Switch between three sections through the model or the full mesh boundary. Thin models receive bounded local refinement before surface fitting. Inspect the actual volume-cell section, required quality checks, boundary preservation and MRF zone findings. Acknowledge actionable findings with **Review mesh & continue**. Failed or unavailable previews are explicit; requested layers are not reported as achieved layers.
 4. **Run:** solve using the reviewed mesh. Geometry or physics edits invalidate it; study names and solver controls may reuse it. Every attempt preserves its specification, logs and results. Cancellation preserves available artifacts. Guided retries and parameter studies start with new mesh attempts for review before solving. Stage navigation always remains open, while blocked actions explain what needs attention.
-5. **Results:** inspect measured quantities, pressure surfaces and longitudinal velocity slices generated once per guided run. Pipe results include volume/mass flow, static pressures and separate total-pressure/head loss; object results include drag/lift and their projected histories; rotor results include thrust, fluid torque, required driving torque/power and load histories. Missing evidence stays unavailable. Field-extraction failure is separate from solve success.
+5. **Results:** use the pressure, velocity section and streamline buttons. Toggle **Show object** for context and **Animate tracers** for playback along solved streamlines. This is visualization of steady flow, not transient CFD. Inspect measured quantities, pressure surfaces and longitudinal velocity slices generated once per guided run. Pipe results include volume/mass flow, static pressures and separate total-pressure/head loss; object results include drag/lift and their projected histories; rotor results include thrust, fluid torque, required driving torque/power and load histories. Missing evidence stays unavailable. Field-extraction failure is separate from solve success.
 6. **Export:** download the raw case, histories, VTK, HDF5, ParaView state, PNG, report or complete bundle. Buttons reflect actual artifact availability. Bundles retain definitions, selected surfaces, axes, units, numerical findings and Python/MATLAB readers.
 
-**Preparation:** Auto prepare previews conservative triangle cleanup, component-bounded welding and normal correction. Review before applying an immutable revision. It does not merge touching parts, certify self-intersections or automatically close unidentified openings. For internal flow, isolate the inner walls and explicitly cap planar ports to form one connected fluid envelope. Ambiguous surface mappings require reassignment in Setup.
+**Preparation:** Auto prepare previews conservative triangle cleanup, component-bounded welding and normal correction. Review before applying an immutable revision. **Mesh-friendly preparation** groups faces within each component to reduce tiny boundary patches for external/rotor cases. **Cleanup only** preserves individual faces for pipe inlet/outlet assignment. It does not merge touching parts, certify self-intersections or automatically close unidentified openings. For internal flow, isolate the inner walls and explicitly cap planar ports to form one connected fluid envelope. Ambiguous surface mappings require reassignment in Setup.
 
 **Rotors:** one steady MRF cylinder encloses the selected complete rotor components. Confirm axis and origin before suggesting cylinder dimensions. Signed RPM follows the right-hand rule. The cylinder is rotating fluid, never a solid wall. Other components stay stationary. MRF predicts mean loads at a fixed rotor position, not moving blades through time.
 
 **Layout:** drag the panel divider or focus it and use arrow keys (Home/End set 280/600 px). Sections collapse independently; boundary lists filter by component and assignment. Hide controls reclaims the navigation and setup space. Layout preferences and the active setup/mesh/solution restore locally after reload.
+
+**Progress:** mesh percentages estimate phases, rather than predicting remaining time. Solve progress uses the actual iteration budget and can finish early on convergence. A failed job never displays 100% completion.
+
+**Example CAD:** `Example CAD/propeller.STEP` and `RectPrism.STEP` completed default SST meshing, short solves and result extraction after component preparation. The propeller retained its rotor surface in a 211,565-cell mesh. `VehicleAssem.STEP` imports its 43 component records, but conservative cleanup leaves 1,064 nonmanifold edges; repair or simplify the offending bodies in CAD before meshing. These are runtime checks, not aerodynamic or propeller benchmarks.
 
 **Current release status:** development software. Passing mesh/solver checks does not establish agreement with experiments. The app explicitly marks experimental template validation as pending. See [validation status](docs/VALIDATION.md) and [implementation handoff](docs/HANDOFF.md) for tested paths and remaining engineering work.
 

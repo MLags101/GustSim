@@ -15,9 +15,10 @@ def pipe():
 
 
 @pytest.mark.parametrize('driving',['flow','speed','pressure'])
-def test_pipe_presets(driving,tmp_path):
+@pytest.mark.parametrize('fluid',['air','water'])
+def test_pipe_presets(driving,fluid,tmp_path):
     g,inlet,outlet=pipe()
-    preview=presets.generate(PresetRequest(geometry_id=g['id'],kind='pipe',inlet=inlet,outlet=outlet,driving=driving,speed=.1,turbulence='laminar'))
+    preview=presets.generate(PresetRequest(geometry_id=g['id'],kind='pipe',fluid=fluid,inlet=inlet,outlet=outlet,driving=driving,speed=.1,turbulence='laminar'))
     assert not preview['report']['valid']
     spec=SimulationSpec.model_validate(preview['spec']);spec.use_case.confirmed=True
     assert validation.validate(spec)['valid']

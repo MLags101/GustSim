@@ -10,10 +10,11 @@ import vtkColorTransferFunction from '@kitware/vtk.js/Rendering/Core/ColorTransf
 import vtkColorMaps from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction/ColorMaps';
 import { api } from './api';
 import vtkDataArray from '@kitware/vtk.js/Common/Core/DataArray';
+import {tracksFromPolyData,sampleTrack} from './streamlinePlayback';
 import {overlayGeometry} from './overlays';
 
-export default function Viewer({geometryId, resultUrl, field='pressure_pa', colorRange, wireframe=false, onPick, reset=0, selectedGroups=[],hiddenGroups=[],rotation,domain}: {
-  geometryId?: string; resultUrl?: string; field?: string; colorRange?: [number,number]; wireframe?:boolean; onPick?:(group:number)=>void; reset?:number;selectedGroups?:number[];hiddenGroups?:number[];rotation?:any;domain?:any;
+export default function Viewer({geometryId, resultUrl, field='pressure_pa', colorRange, wireframe=false, onPick, reset=0, selectedGroups=[],hiddenGroups=[],rotation,domain,flow,modelBounds,cameraPose='iso',objectGeometryId,animate=false}: {
+  flow?:any;modelBounds?:number[][];cameraPose?:string;objectGeometryId?:string;animate?:boolean;geometryId?: string; resultUrl?: string; field?: string; colorRange?: [number,number]; wireframe?:boolean; onPick?:(group:number)=>void; reset?:number;selectedGroups?:number[];hiddenGroups?:number[];rotation?:any;domain?:any;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const cameraState=useRef<any>(undefined);
@@ -22,7 +23,7 @@ export default function Viewer({geometryId, resultUrl, field='pressure_pa', colo
   const [range,setRange]=useState<number[]>([]);
   useEffect(()=>{
     if (!container.current) return;
-    let disposed=false;
+    let disposed=false,animationFrame=0;
     const render = vtkGenericRenderWindow.newInstance({background:[0.055,0.073,0.095]});
     render.setContainer(container.current);
     const renderer=render.getRenderer(), window=render.getRenderWindow();
@@ -32,7 +33,7 @@ export default function Viewer({geometryId, resultUrl, field='pressure_pa', colo
     actor.getProperty().setEdgeVisibility(wireframe);
     actor.getProperty().setEdgeColor(0.14,0.24,0.28);
     if(resultUrl){actor.getProperty().setAmbient(.7);actor.getProperty().setDiffuse(.3);}
-    if(resultUrl?.endsWith('mesh-preview.vtp'))actor.getProperty().setEdgeColor(.36,.56,.65);
+    if(resultUrl?.includes('/mesh-'))actor.getProperty().setEdgeColor(.36,.56,.65);
     renderer.addActor(actor);
     let groups:number[]=[];
     const owned:any[]=[];
@@ -63,7 +64,7 @@ export default function Viewer({geometryId, resultUrl, field='pressure_pa', colo
             const preset=vtkColorMaps.getPresetByName('Cool to Warm'); if(preset)lut.applyColorMap(preset);
             lut.setMappingRange(extent[0],extent[1] || extent[0]+1); lut.updateRange();
             mapper.setLookupTable(lut); mapper.setUseLookupTableScalarRange(true); setRange([...extent]);
-          } else { mapper.setScalarVisibility(false); if(!resultUrl.endsWith('mesh-preview.vtp'))setError(`Field ${field} is not available in this extract.`); }
+          } else { mapper.setScalarVisibility(false); if(!resultUrl.includes('/mesh-'))setError(`Field ${field} is not available in this extract.`); }
         } else if(geometryId){
           const data=await api(`/geometry/${geometryId}/scene`); if(disposed)return;
           poly=vtkPolyData.newInstance(); owned.push(poly);
@@ -75,20 +76,38 @@ export default function Viewer({geometryId, resultUrl, field='pressure_pa', colo
           const colorsArray=vtkDataArray.newInstance({name:'componentColors',numberOfComponents:3,values:new Uint8Array(colors)});owned.push(colorsArray);poly.getCellData().setScalars(colorsArray);mapper.setScalarMode(2);mapper.setColorModeToDirectScalars();mapper.setScalarVisibility(true);
         } else return;
         if(disposed)return;
-        mapper.setInputData(poly); renderer.resetCamera();
+        mapper.setInputData(poly);
+        if(objectGeometryId&&resultUrl){
+          const data=await api(`/geometry/${objectGeometryId}/scene`);if(disposed)return;
+          const object=vtkPolyData.newInstance();owned.push(object);object.getPoints().setData(new Float32Array(data.points),3);object.getPolys().setData(new Uint32Array(data.polys));
+          const objectMapper=vtkMapper.newInstance();owned.push(objectMapper);objectMapper.setInputData(object);objectMapper.setScalarVisibility(false);
+          const objectActor=vtkActor.newInstance();owned.push(objectActor);objectActor.setMapper(objectMapper);objectActor.getProperty().setColor(.64,.7,.73);objectActor.getProperty().setOpacity(.8);objectActor.setPickable(false);renderer.addActor(objectActor);
+        }
+        if(animate){
+          const tracks=tracksFromPolyData(poly);
+          if(!tracks.length)setError('No integration-time streamline data is available for animation. Extract Streamlines first.');
+          else{
+            const particles=vtkPolyData.newInstance();owned.push(particles);particles.getPoints().setData(new Float32Array(tracks.length*3),3);particles.getVerts().setData(new Uint32Array(tracks.flatMap((_,i)=>[1,i])));
+            const pm=vtkMapper.newInstance();owned.push(pm);pm.setInputData(particles);pm.setScalarVisibility(false);
+            const pa=vtkActor.newInstance();owned.push(pa);pa.setMapper(pm);pa.getProperty().setColor(1,.85,.25);pa.getProperty().setPointSize(6);pa.getProperty().setAmbient(1);pa.setPickable(false);renderer.addActor(pa);
+            const started=performance.now();
+            const frame=(now:number)=>{if(disposed)return;const values=particles.getPoints().getData() as Float32Array;tracks.forEach((track,i)=>values.set(sampleTrack(track,((now-started)/8000+i/tracks.length)%1),i*3));particles.getPoints().modified();particles.modified();window.render();animationFrame=requestAnimationFrame(frame);};animationFrame=requestAnimationFrame(frame);
+          }
+        }
+        renderer.resetCamera();
         const camera=renderer.getActiveCamera();const saved=cameraState.current;const sceneKey=resultUrl||geometryId;
-        if(saved?.key===sceneKey&&saved.reset===reset){camera.setPosition(...saved.position as [number,number,number]);camera.setFocalPoint(...saved.focal as [number,number,number]);camera.setViewUp(...saved.up as [number,number,number]);camera.setParallelScale(saved.scale);}
-        else{camera.azimuth(25);camera.elevation(20);camera.setViewUp(0,0,1);}
-        if(!resultUrl&&(rotation?.enabled||domain)){const overlay=overlayGeometry(rotation,domain);owned.push(overlay);const overlayMapper=vtkMapper.newInstance();owned.push(overlayMapper);overlayMapper.setInputData(overlay);const overlayActor=vtkActor.newInstance();owned.push(overlayActor);overlayActor.setMapper(overlayMapper);overlayActor.getProperty().setColor(.97,.79,.5);overlayActor.getProperty().setLineWidth(2);overlayActor.setPickable(false);renderer.addActor(overlayActor);}
+        if(saved?.key===sceneKey&&saved.reset===reset&&saved.pose===cameraPose){camera.setPosition(...saved.position as [number,number,number]);camera.setFocalPoint(...saved.focal as [number,number,number]);camera.setViewUp(...saved.up as [number,number,number]);camera.setParallelScale(saved.scale);}
+        else{if(cameraPose==='iso'){camera.azimuth(25);camera.elevation(20);camera.setViewUp(0,0,1);}else{const f=camera.getFocalPoint(),distance=Math.hypot(...camera.getPosition().map((n:number,i:number)=>n-f[i]));const axis=['x','y','z'].indexOf(cameraPose);camera.setPosition(...f.map((n:number,i:number)=>n+(i===axis?distance:0)) as [number,number,number]);camera.setViewUp(...(axis===2?[0,1,0]:[0,0,1]) as [number,number,number]);}}
+        if(!resultUrl&&(rotation?.enabled||domain||flow)){const overlay=overlayGeometry(rotation,domain,flow,modelBounds);owned.push(overlay);const overlayMapper=vtkMapper.newInstance();owned.push(overlayMapper);overlayMapper.setInputData(overlay);const overlayActor=vtkActor.newInstance();owned.push(overlayActor);overlayActor.setMapper(overlayMapper);overlayActor.getProperty().setColor(.97,.79,.5);overlayActor.getProperty().setLineWidth(2);overlayActor.setPickable(false);renderer.addActor(overlayActor);}
         renderer.resetCameraClippingRange();render.resize();window.render();
       }catch(e){if(!disposed)setError(String(e));}
     }
     load();
-    return ()=>{const camera=renderer.getActiveCamera();cameraState.current={key:resultUrl||geometryId,reset,position:[...camera.getPosition()],focal:[...camera.getFocalPoint()],up:[...camera.getViewUp()],scale:camera.getParallelScale()};disposed=true; observer.disconnect();subscription.unsubscribe();picker.delete();renderer.removeActor(actor);actor.delete();mapper.delete();owned.forEach(v=>v.delete());render.delete();};
-  },[geometryId,resultUrl,field,colorRange?.[0],colorRange?.[1],wireframe,reset,JSON.stringify(selectedGroups),JSON.stringify(hiddenGroups),JSON.stringify(rotation),JSON.stringify(domain)]);
+    return ()=>{const camera=renderer.getActiveCamera();cameraState.current={key:resultUrl||geometryId,reset,pose:cameraPose,position:[...camera.getPosition()],focal:[...camera.getFocalPoint()],up:[...camera.getViewUp()],scale:camera.getParallelScale()};disposed=true;cancelAnimationFrame(animationFrame);observer.disconnect();subscription.unsubscribe();picker.delete();renderer.removeActor(actor);actor.delete();mapper.delete();owned.forEach(v=>v.delete());render.delete();};
+  },[geometryId,resultUrl,field,colorRange?.[0],colorRange?.[1],wireframe,reset,JSON.stringify(selectedGroups),JSON.stringify(hiddenGroups),JSON.stringify(rotation),JSON.stringify(domain),JSON.stringify(flow),JSON.stringify(modelBounds),cameraPose,objectGeometryId,animate]);
   return <div className="viewport"><div className="vtk-container" ref={container}/>{error&&<div className="viewport-notice">{error}</div>}
     {!geometryId&&!resultUrl&&<div className="viewport-empty"><div className="empty-cross">＋</div><h2>Your next simulation starts here</h2><p>Import a STEP or STL model, or create a primitive.<br/>Geometry stays on this machine.</p></div>}
-    <div className="axis-key"><span>X</span><span>Y</span><span>Z</span><small>SI · metres</small></div>
+    <div className="flow-legend">{flow&&<span>{flow.preview?'Preview · ':''}{flow.label||(flow.speed===0?'Still fluid':`${flow.fluid==='water'?'Water':'Fluid'} speed ${flow.speed} m/s · arrows show incoming flow`)}</span>}</div><div className="axis-key"><span>X</span><span>Y</span><span>Z</span><small>SI · metres</small></div>
     {!!range.length&&<div className="color-legend"><span>{range[0].toPrecision(4)}</span><div/><span>{range[1].toPrecision(4)}</span><small>{field==='pressure_pa'?'Pressure · Pa':field==='U'?'Velocity · m/s':field}</small></div>}
   </div>;
 }
