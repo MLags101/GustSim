@@ -93,12 +93,14 @@ def analyze(case:Path,spec:SimulationSpec):
     advanced=(case/'logs/mesh_diagnostics.log').read_text(errors='replace') if (case/'logs/mesh_diagnostics.log').exists() else ''
     if 'Failed ' in advanced:
         findings.append({'code':'extended_mesh_diagnostics','status':'review','detail':'Extended geometry diagnostics reported findings (including possible concave cells). Inspect logs/mesh_diagnostics.log; explicit solver mesh-quality limits passed separately.'})
-    check("residuals",residual_pass,"All solved fields meet the configured initial-residual threshold")
+    res_msg=f"All solved fields meet residual target ({spec.solver.residual_target})" if residual_pass else f"Field residuals remain above target ({spec.solver.residual_target}); increase iterations in solver controls"
+    check("residuals",residual_pass,res_msg)
     check("mass_balance",imbalance<0.001 if imbalance is not None else None,"Net boundary flux below 0.1% of throughflow")
     check("load_stability",steady<0.01 if steady is not None else None,"Force variation below 1% over the last 20 iterations")
     if spec.rotation.enabled:check("torque_stability",torque_steady<0.01 if torque_steady is not None else None,"Torque variation below 1% over the last 20 iterations")
     converged="solution converged" in text.lower()
-    check("solver_termination",converged,"SIMPLE residual-control convergence reported; iteration-limit completion alone is insufficient")
+    term_msg="SIMPLE residual-control convergence reported" if converged else f"Stopped at iteration limit ({spec.solver.iterations} iter) before residual convergence; increase iterations in solver controls"
+    check("solver_termination",converged,term_msg)
     check("experimental_validation",None,"Template has not yet passed the experimental benchmark release gates")
     metrics={"force_n":None,"moment_nm":None,"drag_n":None,"lift_n":None,"side_force_n":None,"cd":None,"cl":None,"thrust_n":None,"torque_nm":None,"shaft_power_w":None,"efficiency":None,"ct":None,"cq":None,"advance_ratio":None}
     q=0.5*spec.fluid.density*spec.flow.speed**2

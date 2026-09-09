@@ -10,6 +10,23 @@ export function JobProgress({job,busy}:any){
   return <div className="job-progress" role="status"><div><strong>{label}</strong><span>{progress?`${Math.round(progress.percent)}%`:''}</span></div><progress aria-label={busy||'Job progress'} max={100} value={busy?undefined:progress?.percent}/><p>{busy?'Working — duration depends on model size.':`${active?Math.round(now/1000-job.created)+' seconds · ':''}${progress?.label||job.status}`}</p>{active&&<small>You can inspect other stages. This task continues if you close the page.</small>}</div>;
 }
 
+export function HeaderJobProgress({mesh,run,busy,onNavigate}:any){
+  const [now,setNow]=useState(Date.now());
+  useEffect(()=>{const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[]);
+  const activeMesh=['queued','running'].includes(mesh?.status);
+  const activeRun=['queued','running'].includes(run?.status);
+  const activeJob=activeMesh?mesh:activeRun?run:null;
+  const isBusy=!!busy;
+  if(!isBusy&&!activeJob) return null;
+  const targetStep=activeMesh?2:activeRun?3:undefined;
+  const progress=activeJob?.progress;
+  const pct=progress?Math.round(progress.percent):undefined;
+  const elapsed=activeJob?.created?Math.max(0,Math.round(now/1000-activeJob.created)):0;
+  const label=isBusy?busy:(activeJob?.stage?.replaceAll('_',' ')||activeJob?.status);
+  const subLabel=isBusy?'Working...':progress?.label||`${elapsed}s elapsed`;
+  return <div className="header-job-progress" role="status" onClick={()=>targetStep!==undefined&&onNavigate?.(targetStep)} title={targetStep!==undefined?'Click to view job details':undefined} style={{cursor:targetStep!==undefined?'pointer':'default'}}><span className="pulse-indicator"/><div className="header-job-info"><div className="header-job-title"><strong>{label}</strong>{pct!==undefined&&<span>{pct}%</span>}</div><progress max={100} value={pct} aria-label={label}/><div className="header-job-meta"><small>{subLabel}</small>{targetStep!==undefined&&<span className="header-job-link">View stage →</span>}</div></div></div>;
+}
+
 export function StageGuide({step,geometry}:any){
   const tips=[['Start with a model','Import a STEP assembly, check its size, then prepare a mesh-friendly revision. Your original CAD is kept.'],['Tell us what is moving','Choose a use case and fluid. Set speed and direction using the arrows in the 3D view. Then select the measured or rotating components.'],['Inspect the cells around the model','The mesh divides the fluid into cells. A section cuts through those cells; the hole is the solid object. Check that thin features are still present.'],['Run the steady simulation','Progress reports solver iterations, not physical time. A finished run still needs convergence and mesh-sensitivity review.'],['Explore the flow','Choose pressure, a velocity slice or streamlines. Show the object for context, and animate tracers along the solved streamlines.'],['Keep your results','Export the case and numerical findings together so the setup and limitations stay with your measurements.']];
   return <div className="stage-guide"><strong>{tips[step][0]}</strong><p>{tips[step][1]}</p>{step===0&&!geometry&&<p>Use New simulation above to keep separate designs and attempts organized.</p>}</div>;

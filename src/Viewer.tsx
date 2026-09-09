@@ -10,6 +10,12 @@ import vtkColorTransferFunction from '@kitware/vtk.js/Rendering/Core/ColorTransf
 import vtkColorMaps from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction/ColorMaps';
 import { api } from './api';
 import vtkDataArray from '@kitware/vtk.js/Common/Core/DataArray';
+import vtkInteractorStyleManipulator from '@kitware/vtk.js/Interaction/Style/InteractorStyleManipulator';
+import vtkMouseCameraTrackballRotateManipulator from '@kitware/vtk.js/Interaction/Manipulators/MouseCameraTrackballRotateManipulator';
+import vtkMouseCameraTrackballPanManipulator from '@kitware/vtk.js/Interaction/Manipulators/MouseCameraTrackballPanManipulator';
+import vtkMouseCameraTrackballZoomManipulator from '@kitware/vtk.js/Interaction/Manipulators/MouseCameraTrackballZoomManipulator';
+import vtkOrientationMarkerWidget from '@kitware/vtk.js/Interaction/Widgets/OrientationMarkerWidget';
+import vtkAxesActor from '@kitware/vtk.js/Rendering/Core/AxesActor';
 import {tracksFromPolyData,sampleTrack} from './streamlinePlayback';
 import {overlayGeometry} from './overlays';
 
@@ -39,8 +45,42 @@ export default function Viewer({geometryId, resultUrl, field='pressure_pa', colo
     const owned:any[]=[];
     const picker=vtkCellPicker.newInstance();
     picker.setPickFromList(true); picker.addPickList(actor);
-    const subscription=render.getInteractor().onLeftButtonPress((event:any)=>{
-      if(!event.position || !groups.length) return;
+
+    const interactor=render.getInteractor();
+    const canvas=container.current.querySelector('canvas');
+    const onContextMenu=(e:MouseEvent)=>e.preventDefault();
+    canvas?.addEventListener('contextmenu',onContextMenu);
+
+    const iStyle=vtkInteractorStyleManipulator.newInstance();
+    iStyle.addMouseManipulator(vtkMouseCameraTrackballRotateManipulator.newInstance({button:1}));
+    iStyle.addMouseManipulator(vtkMouseCameraTrackballPanManipulator.newInstance({button:3}));
+    iStyle.addMouseManipulator(vtkMouseCameraTrackballPanManipulator.newInstance({button:2}));
+    iStyle.addMouseManipulator(vtkMouseCameraTrackballPanManipulator.newInstance({button:1,shift:true}));
+    iStyle.addMouseManipulator(vtkMouseCameraTrackballZoomManipulator.newInstance({scrollEnabled:true}));
+    iStyle.addMouseManipulator(vtkMouseCameraTrackballZoomManipulator.newInstance({button:3,control:true}));
+    interactor.setInteractorStyle(iStyle);
+
+    const axes=vtkAxesActor.newInstance();
+    const orientationWidget=vtkOrientationMarkerWidget.newInstance({
+      actor:axes,
+      interactor,
+    });
+    orientationWidget.setParentRenderer(renderer);
+    orientationWidget.setEnabled(true);
+    orientationWidget.setViewportCorner(vtkOrientationMarkerWidget.Corners.BOTTOM_LEFT);
+    orientationWidget.setViewportSize(0.16);
+    orientationWidget.setMinPixelSize(70);
+    orientationWidget.setMaxPixelSize(120);
+
+    let downPos:{x:number;y:number}|null=null;
+    const subDown=interactor.onLeftButtonPress((event:any)=>{
+      if(event.position) downPos={x:event.position.x,y:event.position.y};
+    });
+    const subUp=interactor.onLeftButtonRelease((event:any)=>{
+      if(!downPos||!event.position||!groups.length) return;
+      const dx=event.position.x-downPos.x, dy=event.position.y-downPos.y;
+      downPos=null;
+      if(Math.hypot(dx,dy)>5||event.shiftKey||event.controlKey||event.altKey) return;
       picker.pick([event.position.x,event.position.y,0],renderer);
       const id=picker.getCellId();
       if(id>=0) pickRef.current?.(groups[id]);
@@ -103,11 +143,11 @@ export default function Viewer({geometryId, resultUrl, field='pressure_pa', colo
       }catch(e){if(!disposed)setError(String(e));}
     }
     load();
-    return ()=>{const camera=renderer.getActiveCamera();cameraState.current={key:resultUrl||geometryId,reset,pose:cameraPose,position:[...camera.getPosition()],focal:[...camera.getFocalPoint()],up:[...camera.getViewUp()],scale:camera.getParallelScale()};disposed=true;cancelAnimationFrame(animationFrame);observer.disconnect();subscription.unsubscribe();picker.delete();renderer.removeActor(actor);actor.delete();mapper.delete();owned.forEach(v=>v.delete());render.delete();};
+    return ()=>{const camera=renderer.getActiveCamera();cameraState.current={key:resultUrl||geometryId,reset,pose:cameraPose,position:[...camera.getPosition()],focal:[...camera.getFocalPoint()],up:[...camera.getViewUp()],scale:camera.getParallelScale()};disposed=true;cancelAnimationFrame(animationFrame);observer.disconnect();canvas?.removeEventListener('contextmenu',onContextMenu);subDown.unsubscribe();subUp.unsubscribe();orientationWidget.setEnabled(false);orientationWidget.delete();axes.delete();iStyle.delete();picker.delete();renderer.removeActor(actor);actor.delete();mapper.delete();owned.forEach(v=>v.delete());render.delete();};
   },[geometryId,resultUrl,field,colorRange?.[0],colorRange?.[1],wireframe,reset,JSON.stringify(selectedGroups),JSON.stringify(hiddenGroups),JSON.stringify(rotation),JSON.stringify(domain),JSON.stringify(flow),JSON.stringify(modelBounds),cameraPose,objectGeometryId,animate]);
   return <div className="viewport"><div className="vtk-container" ref={container}/>{error&&<div className="viewport-notice">{error}</div>}
     {!geometryId&&!resultUrl&&<div className="viewport-empty"><div className="empty-cross">＋</div><h2>Your next simulation starts here</h2><p>Import a STEP or STL model, or create a primitive.<br/>Geometry stays on this machine.</p></div>}
-    <div className="flow-legend">{flow&&<span>{flow.preview?'Preview · ':''}{flow.label||(flow.speed===0?'Still fluid':`${flow.fluid==='water'?'Water':'Fluid'} speed ${flow.speed} m/s · arrows show incoming flow`)}</span>}</div><div className="axis-key"><span>X</span><span>Y</span><span>Z</span><small>SI · metres</small></div>
+    <div className="flow-legend">{flow&&<span>{flow.preview?'Preview · ':''}{flow.label||(flow.speed===0?'Still fluid':`${flow.fluid==='water'?'Water':'Fluid'} speed ${flow.speed} m/s · arrows show incoming flow`)}</span>}</div><div className="axis-key"><small>SI · metres</small></div>
     {!!range.length&&<div className="color-legend"><span>{range[0].toPrecision(4)}</span><div/><span>{range[1].toPrecision(4)}</span><small>{field==='pressure_pa'?'Pressure · Pa':field==='U'?'Velocity · m/s':field}</small></div>}
   </div>;
 }

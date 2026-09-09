@@ -22,9 +22,28 @@ export function GuidedSetup({geometry,spec,setSpec,selected,setSelected,act,onFl
   useEffect(()=>{setPreview(undefined);setConfirmed(false);},[requestKey]);
   useEffect(()=>{
     const v=kind==='aerodynamics'?direction.map(n=>-n):axis;
-    onFlowPreview?.(page===2&&preview?{...preview.spec.flow,fluid,domain:preview.spec.domain,rotation:preview.spec.rotation,preview:true}:page===1?{velocity:v,speed:kind==='pipe'?0:speed,fluid,preview:true,label:kind==='pipe'?'Preview the pipe setup to inspect its inlet direction':undefined}:null);
+    const propSpan=geometry?.dimensions?Math.max(...geometry.dimensions):1;
+    const estRadius=propSpan*0.45, estLength=propSpan*0.35;
+    const rotPreview=kind==='propeller'?{
+      enabled:true,
+      origin,
+      axis,
+      rpm,
+      radius:preview?.spec?.rotation?.radius||estRadius,
+      length:preview?.spec?.rotation?.length||estLength,
+      blade_radius:preview?.spec?.rotation?.blade_radius||(estRadius*0.85),
+      patches:selected
+    }:undefined;
+    onFlowPreview?.(page===2&&preview?{...preview.spec.flow,fluid,domain:preview.spec.domain,rotation:preview.spec.rotation,preview:true}:page===1?{
+      velocity:v,
+      speed:kind==='pipe'?0:speed,
+      fluid,
+      rotation:rotPreview,
+      preview:true,
+      label:kind==='pipe'?'Preview the pipe setup to inspect its inlet direction':kind==='propeller'?`Rotor: ${rpm} RPM · positive axis and spin direction shown in 3D`:undefined
+    }:null);
     return()=>onFlowPreview?.(null);
-  },[page,kind,speed,fluid,JSON.stringify(direction),JSON.stringify(axis),JSON.stringify(preview?.spec)]);
+  },[page,kind,speed,fluid,JSON.stringify(direction),JSON.stringify(axis),JSON.stringify(origin),rpm,JSON.stringify(selected),JSON.stringify(preview?.spec)]);
 
   return <Section title="Guided setup"><div className="step-tabs">{['1 · Use case','2 · Flow & model','3 · Review'].map((name,i)=><button className={page===i?'active':''} key={name} onClick={()=>setPage(i)}>{name}</button>)}</div><p className="hint">Current setup: {spec.use_case?.kind||'Custom'}. Preview a common-use setup before replacing the current settings.</p>
     {page===0&&<><S label="Common use" value={kind} onChange={v=>{setKind(v);setSpeed(v==='propeller'?0:10);}} options={[["pipe","Basic pipe flow"],["aerodynamics","Object moving through fluid"],["propeller","Stationary assembly with rotor"]]}/>
