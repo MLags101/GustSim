@@ -20,6 +20,80 @@ def load(identifier):
     with np.load(revision_path(identifier) / "mesh.npz", allow_pickle=False) as a:
         return trimesh.Trimesh(a["vertices"], a["faces"], process=False), a["groups"].copy()
 
+def projected_area(mesh, direction, resolution=512, budget=8_000_000):
+    """Silhouette area of the mesh on the plane normal to `direction`, in m^2.
+
+    Deterministic stratified rasterization: every triangle is projected and sampled
+    on a fixed lattice dense enough to cover each grid cell it touches, then the
+    union of covered cells is measured. Unlike 0.5*sum(|n.d|*A) this does not
+    double-count concave features (wheel wells, ducts), and unlike a bounding-box
+    face it follows the actual travel direction. It tolerates open and
+    non-manifold surfaces, so it also works on wrapped or partially prepared CAD.
+    """
+    d = np.asarray(direction, dtype=float)
+    norm = np.linalg.norm(d)
+    if norm < 1e-12:
+        raise ValueError("Projection direction must be nonzero")
+    d = d / norm
+    helper = np.array([0.0, 0.0, 1.0]) if abs(d[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
+    u = np.cross(d, helper); u /= np.linalg.norm(u)
+    v = np.cross(d, u)
+    flat = np.asarray(mesh.vertices, dtype=float) @ np.column_stack([u, v])
+    tri = flat[np.asarray(mesh.faces)]
+    if not len(tri):
+        return 0.0
+    low = tri.reshape(-1, 2).min(axis=0); high = tri.reshape(-1, 2).max(axis=0)
+    extent = high - low
+    if not np.all(np.isfinite(extent)) or extent.max() <= 0:
+        return 0.0
+    a, b, c = tri[:, 0], tri[:, 1], tri[:, 2]
+    edge1, edge2 = b - a, c - a
+    area = 0.5 * np.abs(edge1[:, 0]*edge2[:, 1] - edge1[:, 1]*edge2[:, 0])
+    live = area > 0
+    if not live.any():
+        return 0.0
+    a, b, c, area = a[live], b[live], c[live], area[live]
+    # Four samples per covered cell resolves cell-boundary coverage well below 1%.
+    # Heavily overlapping geometry can exceed the sample budget, so coarsen the grid
+    # rather than thinning the samples: density per cell must stay constant or large
+    # triangles get undercounted.
+    cell = extent.max() / max(resolution, 1)
+    for _ in range(8):
+        required = 4 * float(area.sum()) / (cell*cell) + len(area)
+        if required <= budget:
+            break
+        cell *= math.sqrt(required / budget)
+    shape = np.maximum(np.ceil(extent / cell).astype(np.int64) + 1, 1)
+    counts = np.maximum(np.ceil(4 * area / (cell*cell)).astype(np.int64), 1)
+    total = int(counts.sum())
+    index = np.repeat(np.arange(len(counts)), counts)
+    # Deterministic van der Corput / Halton lattice in barycentric coordinates.
+    rank = np.arange(total, dtype=np.int64) - np.repeat(np.cumsum(counts) - counts, counts)
+    span = np.repeat(counts, counts)
+    r1 = (rank + 0.5) / span
+    r2 = _radical_inverse(rank, 3)
+    root = np.sqrt(r1)
+    w0, w1, w2 = (1 - root), root * (1 - r2), root * r2
+    points = a[index]*w0[:, None] + b[index]*w1[:, None] + c[index]*w2[:, None]
+    ij = np.floor((points - low) / cell).astype(np.int64)
+    np.clip(ij[:, 0], 0, shape[0]-1, out=ij[:, 0])
+    np.clip(ij[:, 1], 0, shape[1]-1, out=ij[:, 1])
+    covered = np.zeros(int(shape[0])*int(shape[1]), dtype=bool)
+    covered[ij[:, 0]*shape[1] + ij[:, 1]] = True
+    return float(covered.sum()) * cell * cell
+
+
+def _radical_inverse(n, base):
+    result = np.zeros(len(n), dtype=float)
+    scale = 1.0
+    remaining = n.astype(np.int64).copy()
+    while remaining.any():
+        scale /= base
+        result += (remaining % base) * scale
+        remaining //= base
+    return result
+
+
 def connected_groups(mesh, angle=35):
     parent = np.arange(len(mesh.faces))
     def root(i):
@@ -318,6 +392,22 @@ def prepare(identifier, request: Prepare):
     extra = {'parts': parts, 'patch_mapping': mapping, 'source_revision': identifier,
              'preparation_before': meta['diagnostics'], 'cad_valid': meta.get('cad_valid'),
              'component_schema_version': meta.get('component_schema_version', 1)}
+    if meta.get('geometry_fidelity'):
+        extra['geometry_fidelity']=meta['geometry_fidelity']
+        extra['wrap']=meta.get('wrap')
+    if request.wrap:
+        # Applied last so it wraps the already-transformed, already-grouped surface.
+        from . import wrap as wrapping
+        wrapped, info = wrapping.wrap(mesh, resolution=request.wrap_resolution,
+                                      close_gaps=request.wrap_close_gaps)
+        groups = wrapping.assign_groups(wrapped, mesh, groups)
+        mesh = wrapped
+        present = {names[int(g)] for g in np.unique(groups)}
+        mapping = {name: ([name] if name in present else []) for name in mapping}
+        parts = [{**p, 'patches': [n for n in p['patches'] if n in present]} for p in parts]
+        # An approximated surface must never be mistaken for the imported CAD.
+        extra.update(geometry_fidelity=wrapping.FIDELITY, wrap=info,
+                     patch_mapping=mapping, parts=parts)
     return save(mesh, groups, names, meta["filename"], parent=identifier,
                 confirmed=True, operations=meta["operations"]+[request.model_dump()], extra=extra)
 

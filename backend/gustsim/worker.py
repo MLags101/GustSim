@@ -85,6 +85,29 @@ class LocalExecutor:
                     process.wait()
             if process.stdout:process.stdout.close()
 
+@contextlib.contextmanager
+def keepalive(identifier, interval=3):
+    """Keep the worker heartbeat fresh during long pure-Python phases.
+
+    `LocalExecutor.run` beats while a subprocess is running, but case compilation, mesh
+    preview, quality analysis and copying a polyMesh do not go through it. On a large
+    assembly those take minutes, during which the worker is declared offline after 15 s
+    and the API starts refusing new jobs with a 503 while it is in fact busy.
+    """
+    stop = threading.Event()
+    def beat():
+        while not stop.wait(interval):
+            with contextlib.suppress(Exception):
+                db.heartbeat(identifier)
+    thread = threading.Thread(target=beat, daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join(timeout=interval)
+
+
 def runtime_check():
     required=['blockMesh','surfaceFeatureExtract','snappyHexMesh','checkMesh','simpleFoam','decomposePar','reconstructPar','pvbatch']
     missing=[name for name in required if not shutil.which(name)]
@@ -105,26 +128,44 @@ def process_job(job,executor=None):
             db.update(identifier,status='completed',stage='completed',result={'view_id':job['spec']['view_id'],'run_id':job['spec']['run_id']})
             return
         spec=SimulationSpec.model_validate(job['spec'])
-        db.update(identifier,stage='preparing');foam.compile_case(spec,root)
+        db.update(identifier,stage='preparing')
+        with keepalive(identifier): foam.compile_case(spec,root)
         if job['kind']=='case':
             db.update(identifier,status='completed',stage='completed',result={'case_available':True,'fields_available':False})
             return
-        runtime_check();timeout=spec.solver.timeout_minutes*60
+        runtime_check()
+        # One budget for the attempt. Passing the same limit to every stage let a
+        # "120 minute" run occupy many hours.
+        budget=spec.solver.timeout_minutes*60
+        started=time.monotonic()
+        def timeout():
+            left=budget-(time.monotonic()-started)
+            if left<=0: raise RuntimeError('Attempt exceeded the configured time limit of '
+                                           f'{spec.solver.timeout_minutes} minutes')
+            return left
         reused=False
         if job.get('parent_id') and job['kind']=='solve':
             parent=db.run(job['parent_id'])
             if parent['kind']=='mesh' and parent['status']=='completed':
                 workflow.require_mesh(parent,spec)
                 source=config.DATA/'runs'/parent['id']
-                shutil.copytree(source/'constant/polyMesh',root/'constant/polyMesh')
+                with keepalive(identifier): shutil.copytree(source/'constant/polyMesh',root/'constant/polyMesh')
                 reused=True
                 db.event(identifier,{'stage':'mesh_reuse','message':'Using the reviewed mesh from '+parent['id']})
         commands=[] if reused else [(['blockMesh'],'background'),(['surfaceFeatureExtract'],'features'),(['snappyHexMesh','-overwrite'],'meshing')]
         commands += [(['checkMesh','-meshQuality'],'check'),(['checkMesh','-allTopology','-allGeometry'],'mesh_diagnostics')]
         for command,stage in commands:
-            try: executor.run(identifier,command,root,stage,timeout)
+            try: executor.run(identifier,command,root,stage,timeout())
             except RuntimeError:
-                if stage!='mesh_diagnostics' or 'Failed ' not in (root/'logs/mesh_diagnostics.log').read_text(errors='replace'): raise
+                # Extended diagnostics are advisory, but only tolerate the failure when the
+                # log actually shows diagnostic findings. Reading it must never raise from
+                # inside the handler and mask the original error.
+                tolerated=False
+                if stage=='mesh_diagnostics':
+                    log=root/'logs/mesh_diagnostics.log'
+                    try: tolerated='Failed ' in log.read_text(errors='replace')
+                    except OSError: tolerated=False
+                if not tolerated: raise
                 db.event(identifier,{'stage':stage,'message':'Extended diagnostics require review; explicit quality gate is evaluated separately'})
         mesh_log=(root/'logs/check.log').read_text(errors='replace')
         # Verify the mesh retained the same patch contract as the source geometry.
@@ -138,14 +179,15 @@ def process_job(job,executor=None):
         preview_ok=False
         try:
             meta=json.loads((root/'geometry.json').read_text())
-            mesh_preview(root,[(a+b)/2 for a,b in zip(*meta['bounds'])])
+            with keepalive(identifier):
+                mesh_preview(root,[(a+b)/2 for a,b in zip(*meta['bounds'])])
             preview_ok=True
         except Exception as e:
             db.event(identifier,{'stage':'mesh_preview','message':str(e),'level':'warning'})
         cell_match=re.search(r'\bcells:\s+(\d+)',mesh_log)
         rotation_ok=not spec.rotation.enabled
         if spec.rotation.enabled:
-            executor.run(identifier,['topoSet'],root,'rotation',timeout)
+            executor.run(identifier,['topoSet'],root,'rotation',timeout())
             zone_text=(root/'constant/polyMesh/cellZones').read_text(errors='replace')
             rotation_ok=bool(re.search(r'\brotor\s*\{[^}]*cellLabels\s+(?:List<label>\s+)?[1-9]\d*\s*\(',zone_text,re.S))
         summary=workflow.mesh_evidence(root,spec,boundary_ok,preview_ok,rotation_ok)
@@ -159,22 +201,39 @@ def process_job(job,executor=None):
         db.update(identifier,result={'case_available':True,'mesh_available':preview_ok,'fields_available':False,'mesh_check':'passed' if mesh_pass else 'failed','cell_count':int(cell_match.group(1)) if cell_match else None,'mesh_summary':summary})
         if not mesh_pass:raise RuntimeError('Mesh quality, boundary, or rotor-zone check failed; solving was blocked. Inspect the mesh summary and logs.')
         if job['kind']=='mesh':
-            executor.run(identifier,['foamToVTK','-constant','-ascii'],root,'mesh_export',timeout)
+            executor.run(identifier,['foamToVTK','-constant','-ascii'],root,'mesh_export',timeout())
             db.update(identifier,status='completed',stage='completed')
             return
         if spec.solver.processes>1:
-            executor.run(identifier,['decomposePar','-force'],root,'decomposing',timeout)
-            executor.run(identifier,['mpirun','-np',str(spec.solver.processes),'simpleFoam','-parallel'],root,'solve',timeout)
-            executor.run(identifier,['reconstructPar','-latestTime'],root,'reconstructing',timeout)
-        else:executor.run(identifier,['simpleFoam'],root,'solve',timeout)
-        result=quality.analyze(root,spec);result.update(case_available=True,mesh_available=preview_ok,fields_available=False,mesh_summary=summary,mesh_check='passed')
+            executor.run(identifier,['decomposePar','-force'],root,'decomposing',timeout())
+            executor.run(identifier,['mpirun','-np',str(spec.solver.processes),'simpleFoam','-parallel'],root,'solve',timeout())
+            executor.run(identifier,['reconstructPar','-latestTime'],root,'reconstructing',timeout())
+        else:executor.run(identifier,['simpleFoam'],root,'solve',timeout())
+        with keepalive(identifier): result=quality.analyze(root,spec)
+        result.update(case_available=True,mesh_available=preview_ok,fields_available=False,mesh_summary=summary,mesh_check='passed')
         db.update(identifier,result=result)
-        executor.run(identifier,['pvbatch','--force-offscreen-rendering',str(Path(__file__).with_name('postprocess.py')),str(root),str(root/'results')],root,'postprocessing',timeout)
-        summary=json.loads((root/'results/field_summary.json').read_text())
-        result.update(fields_available=True,field_summary=summary)
-        if spec.fluid.name=='water' and summary['min_pressure_pa']+spec.fluid.reference_pressure_pa<spec.fluid.vapor_pressure_pa:
-            result['findings'].append({'code':'cavitation_risk','status':'fail','detail':'Estimated absolute pressure drops below vapor pressure; single-phase solution is outside its valid envelope'})
-            result['numerical_status']='review_required'
+        # Execution and field extraction are distinct states: the solve has already
+        # converged and its measurements are recorded, so a ParaView failure must not
+        # retract them. It becomes an extraction finding on a completed run.
+        db.heartbeat(identifier)
+        try:
+            executor.run(identifier,['pvbatch','--force-offscreen-rendering',str(Path(__file__).with_name('postprocess.py')),str(root),str(root/'results')],root,'postprocessing',timeout())
+            field_summary=json.loads((root/'results/field_summary.json').read_text())
+            result.update(fields_available=True,field_summary=field_summary)
+            minimum=field_summary.get('min_pressure_pa')
+            if spec.fluid.name=='water' and minimum is not None and minimum+spec.fluid.reference_pressure_pa<spec.fluid.vapor_pressure_pa:
+                result['findings'].append({'code':'cavitation_risk','status':'fail','detail':'Estimated absolute pressure drops below vapor pressure; single-phase solution is outside its valid envelope'})
+                result['numerical_status']='review_required'
+        except Cancelled:
+            raise
+        except Exception as e:
+            result.update(fields_available=False,extraction_error=str(e))
+            result['findings'].append({'code':'field_extraction','status':'unavailable',
+                'detail':'Solved fields were written but could not be extracted for viewing: '+str(e)+
+                         '. The solve, its measurements and the raw case are preserved.'})
+            db.event(identifier,{'stage':'postprocessing','level':'warning',
+                'message':'Field extraction failed; the solve is preserved: '+str(e)})
+        (root/'results').mkdir(parents=True,exist_ok=True)
         (root/'results/quality.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
         db.update(identifier,status='completed',stage='completed',result=result)
         if spec.use_case:

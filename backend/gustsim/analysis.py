@@ -58,25 +58,65 @@ def definitions(spec, metrics, reason=''):
 
 
 def default_views(spec):
+    """The result set generated once per guided run.
+
+    Two views (a pressure surface and one velocity slice) are not enough to judge an
+    external aerodynamics result: the wake, the near-wall resolution and the flow
+    topology all need their own view. Each use case gets the views that its reported
+    quantities actually depend on. Extraction is per-view, so one failure does not
+    remove the others.
+    """
     meta=db.geometry(spec.geometry_id)
-    center=np.mean(meta['bounds'],axis=0)
-    if spec.use_case.kind=='propeller':
-        direction=np.asarray(spec.rotation.axis);center=np.asarray(spec.rotation.origin)
+    bounds=np.asarray(meta['bounds'])
+    center=np.mean(bounds,axis=0)
+    span=float(max(bounds[1]-bounds[0])) or 1.0
+    kind=spec.use_case.kind
+    if kind=='propeller':
+        direction=np.asarray(spec.rotation.axis,dtype=float)
+        direction=direction/max(np.linalg.norm(direction),1e-12)
+        center=np.asarray(spec.rotation.origin,dtype=float)
         patches=spec.rotation.patches
     else:
-        direction=np.asarray(spec.flow.velocity());direction=direction/max(np.linalg.norm(direction),1e-12)
+        direction=np.asarray(spec.flow.velocity(),dtype=float)
+        direction=direction/max(np.linalg.norm(direction),1e-12)
         patches=spec.use_case.force_patches
-    up=np.asarray(spec.references.lift_axis) if spec.use_case.kind=='aerodynamics' else np.eye(3)[np.argmin(np.abs(direction))]
+    up=np.asarray(spec.references.lift_axis,dtype=float) if kind=='aerodynamics' else np.eye(3)[np.argmin(np.abs(direction))]
     normal=np.cross(direction,up)
-    if np.linalg.norm(normal)<1e-12: normal=np.array([0,1,0])
+    if np.linalg.norm(normal)<1e-12: normal=np.array([0.0,1.0,0.0])
     normal=normal/np.linalg.norm(normal)
-    return [ViewSpec(kind='surface',field='pressure_pa',patches=patches), ViewSpec(kind='slice',field='U',origin=tuple(center),normal=tuple(normal))]
+    second=np.cross(direction,normal)
+    if np.linalg.norm(second)<1e-12: second=np.array([0.0,0.0,1.0])
+    second=second/np.linalg.norm(second)
+
+    views=[ViewSpec(kind='surface',field='pressure_pa',patches=patches),
+           ViewSpec(kind='slice',field='U',origin=tuple(center),normal=tuple(normal))]
+    if kind=='pipe':
+        views.append(ViewSpec(kind='slice',field='pressure_pa',origin=tuple(center),normal=tuple(normal)))
+        return views
+    # Streamlines seeded upstream show separation and recirculation, which a single
+    # section plane hides.
+    views.append(ViewSpec(kind='streamlines',field='U',
+                          origin=tuple(center-direction*span*0.7),
+                          seed_radius=max(span*0.65,1e-6),resolution=180))
+    views.append(ViewSpec(kind='slice',field='U',origin=tuple(center),normal=tuple(second)))
+    if kind=='aerodynamics':
+        # A plane one body length downstream: wake size is the clearest visual
+        # explanation of a drag number.
+        views.append(ViewSpec(kind='slice',field='U',
+                              origin=tuple(center+direction*span),normal=tuple(direction)))
+    if spec.flow.turbulence!='laminar':
+        # y+ decides whether the wall treatment was valid at all, so it belongs in the
+        # default set rather than behind a manual extraction.
+        views.append(ViewSpec(kind='surface',field='yPlus',patches=patches))
+    return views
 
 
 def queue_default_views(identifier,spec):
     # Deterministic identifiers + a single transaction prevent duplicate jobs on recovery.
     for index,view in enumerate(default_views(spec)):
-        view_id=hashlib.sha256(f'{identifier}:default:{index}:v1'.encode()).hexdigest()[:32]
+        # v2: the default set changed, so the per-index identity must change with it or a
+        # re-queued run would collide with a previous run's view at the same index.
+        view_id=hashlib.sha256(f'{identifier}:default:{index}:v2'.encode()).hexdigest()[:32]
         job_id=hashlib.sha256(f'{view_id}:job'.encode()).hexdigest()[:32]
         payload={'run_id':identifier,'view_id':view_id,'view':view.model_dump(mode='json'),'automatic':True}
         now=time.time()

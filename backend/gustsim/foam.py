@@ -94,13 +94,16 @@ def compile_case(spec:SimulationSpec,folder:Path):
         geo+=f"\nbodyResolution {{ type searchableBox; min {vector(a)}; max {vector(b)}; }}"
         refinements.append(f"bodyResolution {{ mode inside; levels ((1e15 {spec.mesh.body_level})); }}")
     # Wake refinement follows the incident flow rather than assuming alpha=beta=0.
+    # Only external flow has a wake: inside a duct this box covers the whole fluid
+    # volume and inflates the cell count for nothing, with no way to switch it off.
     direction=np.asarray(spec.flow.velocity()); direction=direction/max(np.linalg.norm(direction),1e-12)
     center=np.mean(meta["bounds"],axis=0)
-    wake_end=center+direction*spec.references.length*5
-    wake_min=np.minimum(center,wake_end)-spec.references.length*0.6
-    wake_max=np.maximum(center,wake_end)+spec.references.length*0.6
-    geo+=f"\nwake {{ type searchableBox; min {vector(wake_min)}; max {vector(wake_max)}; }}"
-    refinements.append(f"wake {{ mode inside; levels ((1e15 {max(1,spec.mesh.surface_level-1)})); }}")
+    if spec.mode!='internal':
+        wake_end=center+direction*spec.references.length*5
+        wake_min=np.minimum(center,wake_end)-spec.references.length*0.6
+        wake_max=np.maximum(center,wake_end)+spec.references.length*0.6
+        geo+=f"\nwake {{ type searchableBox; min {vector(wake_min)}; max {vector(wake_max)}; }}"
+        refinements.append(f"wake {{ mode inside; levels ((1e15 {max(1,spec.mesh.surface_level-1)})); }}")
     for i,region in enumerate(spec.regions):
         name=f"refine_{i}"
         if region.shape=="box":
@@ -199,7 +202,7 @@ relaxationFactors {{ fields {{ p 0.3; }} equations {{ U 0.7; k 0.7; omega 0.7; }
     write(folder,"system/controlDict",f'''application simpleFoam;
 startFrom startTime; startTime 0; stopAt endTime; endTime {spec.solver.iterations}; deltaT 1;
 writeControl timeStep; writeInterval {spec.solver.write_interval}; purgeWrite 0;
-writeFormat ascii; writePrecision 10; writeCompression off; timeFormat general; timePrecision 10;
+writeFormat binary; writePrecision 10; writeCompression off; timeFormat general; timePrecision 10;
 runTimeModifiable false;
 functions {{ {functions} }}''')
     # Preserve an executable-free manifest; worker chooses the actual command sequence.

@@ -71,3 +71,58 @@ Source transfer packaging: `python scripts/package_source.py` writes `release/gu
 Added JSON simulation workspaces under `GUSTSIM_DATA/projects`, use-case wizard pages, air/water in every preset, incoming-flow arrows, collapsed advanced settings, phase/iteration progress, camera buttons, three model-centered mesh sections plus boundary view, one-click field views, optional CAD overlays and steady-streamline tracer playback. No database migration or named-volume change.
 
 `mesh_guidance.py` supplies bounded refinement around thin geometry. The supplied propeller previously vanished from a coarse surface mesh; component surface grouping plus local refinement now preserves it, with strict boundary checks intact. The supplied vehicle remains nonmanifold after conservative cleanup and requires CAD repair. See VALIDATION.md for authentic example attempts and limitations. `progress.py`, `projects.py`, `Experience.tsx` and `streamlinePlayback.ts` contain the new workflow support.
+
+## Usability and robustness work (2026-09-15)
+
+Focus: make the app usable on real CAD without weakening any honesty guarantee. New
+module `wrap.py`; new frontend module `usePolling.ts`; new tests `test_wrap.py`,
+`test_mesh_evidence.py`, `test_phase0_fixes.py` (105 backend tests pass).
+
+**Geometry is no longer a dead end.** The geometry gate is graded instead of binary: a
+closed-but-non-manifold surface — the normal state of an assembly whose parts touch —
+is a review finding, because snappyHexMesh meshes it fine. `geometry_ready` now means
+"nothing blocks meshing". `wrap.py` adds a voxel shrink-wrap for CAD conservative repair
+cannot close: rasterize the triangle soup, flood the exterior, contour the boundary. It
+tolerates open shells, non-manifold junctions and interpenetrating bodies, and refuses
+rather than returning a hollow shell when it leaks. Wrapped revisions carry
+`geometry_fidelity: "wrapped"` into validation, findings, the UI, `manifest()` and the
+HTML report. `VehicleAssem.STEP` now reaches `geometry_ready` (see VALIDATION.md); it has
+**not** been meshed or solved.
+
+**Mesh evidence is measured, not asserted.** `workflow.mesh_metrics` parses checkMesh's
+non-orthogonality, skewness, aspect ratio and negative volumes; `workflow.layer_coverage`
+parses snappyHexMesh's achieved-layer table. A layer shortfall below 80% of the request is
+a review finding, and hitting the cell budget is flagged — snappy stops refining there and
+still reports a valid mesh. `validation.first_layer_thickness` sizes the first layer from a
+y+ target via the flat-plate Cf correlation, so `wall_treatment: resolved` finally changes
+the mesh instead of only a boundary condition.
+
+**Corrected physics.** `references.area` is the true projected silhouette along the travel
+direction (`geometry.projected_area`, validated against analytic boxes/spheres/cylinders to
+<0.4%), not the YZ bounding-box face — Cd was wrong for any non-+X direction. Validation
+warns when a confirmed area no longer matches the current direction.
+
+**Worker/API fixes.** A converged solve is no longer marked `failed` when ParaView
+extraction fails (it becomes an `unavailable` finding on a completed run). The solver time
+limit is one budget for the attempt, not per stage. `keepalive()` holds the heartbeat during
+long pure-Python phases, so the worker stops being declared offline while busy. SSE reads run
+in a threadpool and drain events after the terminal status, so the final error is not lost.
+`recover()` reclaims stranded `generating` runs. The internal-mode wake refinement box is
+gone, and time directories are written binary.
+
+### Remaining priorities
+
+1. **Benchmark acceptance campaign — not started.** All five gates in `benchmarks/README.md`
+   remain unexecuted. This needs authentic reference data and hours of real solves; nothing
+   here changes the `experimental_validation_pending` label.
+2. **Meshing throughput.** No parallel snappy (`decomposePar` → `-parallel` →
+   `reconstructParMesh`), no `potentialFoam` initialization, no `renumberMesh`, and no bounded
+   automatic retry on a mesh-quality failure.
+3. **Frontend typing.** `src/types.ts` was not written; the app is still `any` throughout, so
+   `strict: true` does little. A `useReducer` refactor of `App.tsx` is still worthwhile —
+   the ref-mirror and autosave races were fixed in place rather than designed out.
+4. **CAD import cost.** STEP import and wrapping still run synchronously in the request
+   (54 s and 23 s respectively for the supplied vehicle). Move them into the durable queue.
+   Tessellation deflection is still a fixed 0.25 mm absolute regardless of part size.
+5. **Results depth.** Slice planes are still a backend round-trip per adjustment; client-side
+   slicing of the already-exported `volume.vtu`, and a 3D hover probe, are still open.

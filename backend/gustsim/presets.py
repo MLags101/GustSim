@@ -71,7 +71,10 @@ def generate(request):
         direction = -unit(request.direction)
         lift = unit(request.lift_axis)
         if abs(float(direction@lift)) > 1e-6: raise ValueError('Lift direction must be perpendicular to travel direction')
-        spec.references = References(area=spec.references.area,length=length,origin=tuple(center),drag_axis=tuple(direction),lift_axis=tuple(lift))
+        # Frontal area must follow the chosen travel direction, otherwise Cd is wrong for
+        # every setup that is not aligned with +X.
+        frontal=float(max(geometry.projected_area(geometry.load(request.geometry_id)[0],direction),1e-6))
+        spec.references = References(area=frontal,length=length,origin=tuple(center),drag_axis=tuple(direction),lift_axis=tuple(lift))
         # Open far-field faces support arbitrary travel direction.
         spec.boundaries=[Boundary(patch=p,kind='freestream') for p in validation.DOMAIN_PATCHES]
         spec.boundaries += [Boundary(patch=p,kind='wall') for p in sorted(names)]
@@ -91,6 +94,9 @@ def generate(request):
         spec.domain.minimum=tuple(lo-length*3-np.maximum(-direction,0)*length*5)
         spec.domain.maximum=tuple(hi+length*3+np.maximum(direction,0)*length*5)
         spec.domain.fluid_point=tuple(np.asarray(spec.domain.minimum)+length*.5)
+    # Speed, fluid and reference length are all known only now, so size the near-wall
+    # layer against the flow the user actually chose rather than the geometry alone.
+    spec.mesh.first_layer_m=validation.first_layer_thickness(spec)
     from .mesh_guidance import recommend
     spec.mesh.body_level=recommend(spec,meta)['body_level']
     spec = SimulationSpec.model_validate(spec.model_dump())

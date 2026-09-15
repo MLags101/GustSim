@@ -127,7 +127,11 @@ def analyze(case:Path,spec:SimulationSpec):
         pipe,extra,reason=pipe_metrics(case,spec,fluxes,pressures)
         metrics.update(pipe);findings.extend(extra)
     numerical=all(f["status"]=="pass" for f in findings if f["code"]!="experimental_validation")
-    components={b.patch:force_history(case,"load_"+b.patch)[-1] for b in spec.boundaries if force_history(case,"load_"+b.patch)}
+    # One pass per patch: force_history globs and reparses force.dat/moment.dat on every call.
+    components={}
+    for b in spec.boundaries:
+        rows=force_history(case,"load_"+b.patch)
+        if rows:components[b.patch]=rows[-1]
     return {"numerical_status":"checks_passed" if numerical else "review_required","validation_status":"experimental_validation_pending",
             "termination":"converged" if converged else "iteration_limit_or_unconfirmed", "findings":findings,"metrics":metrics,
             "residuals":residuals,"history":history,"rotor_history":rotor_history,"components":components,

@@ -191,6 +191,11 @@ class Prepare(Model):
     keep_patches: list[str] = Field(default_factory=list)
     merged_name: str = Field(default="selected", pattern=r"^[A-Za-z][A-Za-z0-9_]{0,40}$")
     cap_loops: list[int] = Field(default_factory=list)
+    # Shrink-wrap: an approximation of last resort for assemblies conservative repair
+    # cannot close. The resulting revision is labelled geometry_fidelity="wrapped".
+    wrap: bool = False
+    wrap_resolution: int = Field(default=256, ge=32, le=1024)
+    wrap_close_gaps: int = Field(default=2, ge=0, le=64)
 
 class ViewSpec(Model):
     kind: Literal["surface", "slice", "clip", "streamlines", "glyphs", "line", "probe"] = "surface"

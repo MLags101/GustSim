@@ -3,8 +3,13 @@ import re
 
 MESH=[('queued',0),('preparing',3),('background',8),('features',15),('meshing',30),('check',76),('mesh_diagnostics',82),('rotation',88),('mesh_export',94)]
 
+TERMINAL={'failed':'Stopped: attempt failed','cancelled':'Stopped: cancelled by user','interrupted':'Stopped: worker restarted before this attempt finished'}
+
 def describe(run, root):
     if run['status']=='completed':return {'percent':100,'label':'Completed','basis':'completed'}
+    # A stopped attempt never reports progress toward completion; it reports where it stopped.
+    if run['status'] in TERMINAL:
+        return {'percent':0,'label':f"{TERMINAL[run['status']]} during {str(run['stage']).replace('_',' ')}",'basis':'stopped','stopped_stage':run['stage']}
     phase=dict(MESH).get(run['stage'],5)
     detail='Phase estimate; individual phases can take very different amounts of time'
     if run['kind']=='solve':

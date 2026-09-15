@@ -173,7 +173,10 @@ def get_run(identifier:str):
     record['result']['export_available']={kind:(root/path).is_file() for kind,path in {
         'case':'simulation.json','bundle':'simulation.json','vtk':'results/volume.vtu',
         'hdf5':'results/fields.npz','png':'results/view.png','paraview':'results/view.pvsm'}.items()}
-    record['result']['export_available'].update(csv=bool(record['result'].get('history')),report=bool(record['result']))
+    # `report` needs actual run evidence; `export_available` itself was just inserted above, so
+    # testing the whole result dict would always be truthy even for a queued run.
+    record['result']['export_available'].update(csv=bool(record['result'].get('history')),
+        report=any(record['result'].get(key) for key in ('findings','metrics','mesh_summary')))
     for name in ('history','rotor_history','residuals','projected_history','rotor_load_history'):
         values=record['result'].get(name,[])
         if len(values)>6000:
@@ -184,14 +187,23 @@ def get_run(identifier:str):
 @app.post("/api/runs/{identifier}/cancel")
 def cancel(identifier:str):
     run=db.run(identifier)
-    if run["status"] not in ("queued","running"):raise ValueError("Only queued or running jobs can be cancelled")
-    db.update(identifier,cancel=1,**({"status":"cancelled","stage":"cancelled"} if run["status"]=="queued" else {}))
+    if run["status"] not in ("queued","running","generating"):raise ValueError("Only queued or running jobs can be cancelled")
+    # Nothing polls the cancel flag during inline case compilation, so a stranded
+    # "generating" run is marked cancelled directly, like a queued one.
+    db.update(identifier,cancel=1,**({"status":"cancelled","stage":"cancelled"} if run["status"] in ("queued","generating") else {}))
     return db.run(identifier)
 
 @app.post("/api/runs/{identifier}/retry",status_code=202)
 def retry(identifier:str,guided:bool=False):
     r=db.run(identifier)
     if r["status"] in ("queued","running"):raise ValueError("Wait for the current attempt to stop")
+    if r["kind"]=="view":
+        # A view job's parent is the solved run it extracts from; pointing it at the previous
+        # job id would hide the retry from GET /runs/{id}/views forever.
+        if not db.worker_status()["online"]:raise HTTPException(503,"Start the worker to extract this view")
+        return db.enqueue(r["spec"],"view",r["study_id"],r["spec"]["run_id"])
+    if r["kind"]!="case" and not db.worker_status()["online"]:
+        raise HTTPException(503,"Compute worker is offline. Start the Linux worker before queuing a mesh or solve.")
     return db.enqueue(r["spec"],'mesh' if guided and r['kind']=='solve' else r["kind"],r["study_id"],identifier)
 
 @app.get("/api/runs/{identifier}/events")
@@ -199,14 +211,25 @@ async def events(identifier:str,request:Request,after:int=0):
     db.run(identifier)
     try: cursor=max(after,int(request.headers.get("last-event-id","0")))
     except ValueError:cursor=after
+    from starlette.concurrency import run_in_threadpool
     async def stream():
         nonlocal cursor
         while not await request.is_disconnected():
-            for event in db.events(identifier,cursor):
+            # SQLite calls are blocking and each opens its own connection. Run them off
+            # the event loop: one lock stall here would otherwise freeze the whole API
+            # for every client, and each open stream polls twice a second.
+            events=await run_in_threadpool(db.events,identifier,cursor)
+            for event in events:
                 cursor=event["id"]
                 yield f"id: {cursor}\ndata: {json.dumps(event)}\n\n"
             yield ': heartbeat\n\n'
-            if db.run(identifier)["status"] not in ("queued","running"):
+            status=(await run_in_threadpool(db.run,identifier))["status"]
+            if status not in ("queued","running"):
+                # Drain anything written between the event read and the status read,
+                # otherwise the final error or completion message is lost to the client.
+                for event in await run_in_threadpool(db.events,identifier,cursor):
+                    cursor=event["id"]
+                    yield f"id: {cursor}\ndata: {json.dumps(event)}\n\n"
                 yield 'event: done\ndata: {}\n\n'
                 return
             await asyncio.sleep(1)
@@ -295,7 +318,9 @@ def samples(identifier:str,view_id:str):
                     number=float(value);cleaned[key]=number if math.isfinite(number) else None
                 except (TypeError,ValueError):cleaned[key]=value
             rows.append(cleaned)
-    return {'columns':reader.fieldnames,'rows':rows,'association':'interpolated points'}
+        # Read fieldnames inside the block: for an empty file the property re-reads the handle.
+        columns=reader.fieldnames or []
+    return {'columns':columns,'rows':rows,'association':'interpolated points'}
 
 @app.get("/api/runs/{identifier}/export/{kind}")
 def export(identifier:str,kind:str):

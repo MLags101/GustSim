@@ -122,9 +122,13 @@ def worker_status():
     return {"online": bool(row and time.time() - row["heartbeat"] < 15), "active_run": row["active_run"] if row else None}
 
 def recover():
+    # 'generating' is the API's inline case compilation. Nothing else ever resets it, so
+    # an API restart mid-compile would otherwise strand the run forever: claim() only
+    # looks at 'queued' and cancel() only accepts queued/running.
+    stale = ("running", "generating")
     with connection() as c:
-        ids = [r[0] for r in c.execute("SELECT id FROM runs WHERE status='running'")]
-        c.execute("UPDATE runs SET status='interrupted',stage='interrupted',error='Worker stopped. Artifacts preserved; retry creates a new attempt.',updated=? WHERE status='running'", (time.time(),))
+        ids = [r[0] for r in c.execute("SELECT id FROM runs WHERE status IN (?,?)", stale)]
+        c.execute("UPDATE runs SET status='interrupted',stage='interrupted',error='Worker stopped. Artifacts preserved; retry creates a new attempt.',updated=? WHERE status IN (?,?)", (time.time(), *stale))
     for identifier in ids:
         event(identifier, {"stage": "interrupted", "message": "Worker restarted; this attempt was interrupted"})
 

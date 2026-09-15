@@ -76,3 +76,47 @@ docker compose up -d worker
 
 - Current automated checks: 49 pytest tests pass, including air/water in all presets, local refinement, component preparation, independent saved projects, progress calculations and signed-zero compatibility. TypeScript and the production Vite build pass.
 - Browser checks: empty new workspace, saved-project switching and reload recovery; reviewed mesh enables solving; water setup from +Y generates a reviewable preview; streamline/object visibility, side camera, tracer playback and Hide/Show controls work. Cube extracts contain 288 streamline branches, and all four mesh previews plus ZIP/HDF5 export were checked against actual artifacts.
+
+## Geometry wrapping and the graded geometry gate (2026-09-15)
+
+`backend/gustsim/wrap.py` adds a shrink-wrap fallback for CAD that conservative repair
+cannot close, and the geometry gate is now graded rather than binary.
+
+**What changed in the gate.** A surface that is *closed but non-manifold* — the normal
+state of an assembly whose parts touch — is now a review finding instead of a hard
+error, because snappyHexMesh builds a valid mesh from it. Not-closed, degenerate
+triangles and inconsistent normals still block. `geometry_ready` now means "nothing
+blocks meshing", not "every check is a pass".
+
+**Measured wrap accuracy** against analytic volumes, at 128–160 cells across the longest
+side (`tests/test_wrap.py`):
+
+| Case | Exact volume | Wrapped | Error |
+|---|---|---|---|
+| Sphere r = 0.5 m | 0.5236 m³ | 0.5312 m³ | 1.4 % |
+| Unit cube | 1.0 m³ | 1.037 m³ | 3.7 % |
+| Two interpenetrating unit cubes | 1.5 m³ | 1.519 m³ | 1.3 % |
+| Two touching unit cubes | 2.0 m³ | 2.075 m³ | 3.7 % |
+
+The wrap consistently **overestimates** volume; the error is a voxel-scale surface
+offset and falls with finer resolution. These are geometric checks only. **No wrapped
+geometry has been solved or compared against any measurement, and wrapping does not
+change the experimental validation status, which remains pending.**
+
+**Supplied vehicle CAD.** `Example CAD/VehicleAssem.STEP` (34 MB, 43 components) imports
+as 262,436 triangles across 13,869 CAD-face patches, and is blocked by `closed_surface`
+and `triangles`. With component grouping plus wrapping at 256 cells it becomes a
+watertight, zero-non-manifold, single-component surface of 240,044 triangles across 39
+component patches on a 2.12 mm grid, and passes `validate` with no errors
+(`geometry_ready: true`). Import took 54 s and wrapping 23 s on the Windows development
+host.
+
+**This is a geometry result only.** The vehicle has not been meshed or solved here: that
+needs the Linux worker with OpenFOAM, which was not run for this change. Treat "passes
+validation" as "no longer blocked before meshing", not as a completed CFD case.
+
+**Honesty plumbing.** A wrapped revision carries `geometry_fidelity: "wrapped"` plus the
+grid size. That label reaches the validation warnings, the stage findings, the model
+summary in the UI, `manifest()` (so HDF5 attributes and the bundle), and a banner in the
+exported HTML report. Loads computed on a wrap are loads on an approximation, and every
+artifact says so.

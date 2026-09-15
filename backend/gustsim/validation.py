@@ -1,10 +1,47 @@
 import math
 import numpy as np
 from . import db
-from .geometry import load, point_inside
+from .geometry import load, point_inside, projected_area
 from .models import SimulationSpec, Boundary
 
 DOMAIN_PATCHES = ["inlet", "outlet", "front", "back", "ground", "top"]
+
+TARGET_YPLUS = {"wall_function": 50.0, "resolved": 1.0}
+
+
+def first_layer_thickness(spec, reference_speed=None):
+    """First prism-layer thickness for the configured wall treatment, in metres.
+
+    Uses the flat-plate correlation Cf = 0.058 Re^-0.2 to estimate wall shear, then
+    inverts y+ = rho u_tau y / mu. The previous default was `length * 0.001` -- a purely
+    geometric guess that ignored speed, fluid and wall treatment entirely, and did not
+    change when the user asked for a wall-resolved mesh.
+
+    This sizes the first cell; it does not guarantee the achieved y+, which is only
+    known after solving.
+    """
+    speed = reference_speed if reference_speed is not None else spec.flow.speed
+    if spec.rotation.enabled:
+        # A static rotor has no freestream, so the blade tip sets the near-wall flow.
+        tip = 2*math.pi*abs(spec.rotation.rpm)/60*max(spec.rotation.blade_radius, 1e-9)
+        speed = max(speed, tip)
+    length = max(spec.references.length, 1e-9)
+    density, viscosity = spec.fluid.density, spec.fluid.dynamic_viscosity
+    target = TARGET_YPLUS.get(spec.mesh.wall_treatment, 50.0)
+    reynolds = density*speed*length/viscosity
+    if not np.isfinite(reynolds) or reynolds <= 1:
+        return length*0.001
+    friction = 0.058*reynolds**-0.2
+    wall_shear = 0.5*density*speed*speed*friction
+    if wall_shear <= 0:
+        return length*0.001
+    u_tau = math.sqrt(wall_shear/density)
+    centroid = target*viscosity/(density*u_tau)
+    # y+ is defined at the cell centre, so the layer is twice that height.
+    thickness = 2*centroid
+    # Keep it physically sensible relative to the model.
+    return float(min(max(thickness, length*1e-6), length*0.05))
+
 
 def defaults(identifier):
     meta = db.geometry(identifier)
@@ -17,9 +54,12 @@ def defaults(identifier):
     spec.domain.maximum=tuple(high)
     spec.domain.fluid_point=tuple(low+length*0.5)
     spec.flow.length_scale=length*0.05
-    spec.references.area=float(max((hi[1]-lo[1])*(hi[2]-lo[2]),1e-6))
+    # True silhouette along the reference travel direction, not the YZ bounding-box face:
+    # a box face is only correct when the flow runs along +X and ignores the actual shape.
+    mesh,_=load(identifier)
+    spec.references.area=float(max(projected_area(mesh,spec.references.drag_axis),1e-6))
     spec.references.length=length
-    spec.mesh.first_layer_m=length*0.001
+    spec.mesh.first_layer_m=first_layer_thickness(spec)
     spec.boundaries=[Boundary(patch="inlet",kind="velocity_inlet"),Boundary(patch="outlet",kind="pressure_outlet")]
     spec.boundaries += [Boundary(patch=p,kind="freestream") for p in DOMAIN_PATCHES[2:]]
     spec.boundaries += [Boundary(patch=p["name"],kind="wall") for p in meta["patches"]]
@@ -40,10 +80,31 @@ def validate(spec: SimulationSpec):
     if not meta["units_confirmed"]:
         errors.append("Confirm model units before meshing")
     diag = meta["diagnostics"]
-    if not diag["watertight"] or diag["nonmanifold_edges"] or diag["degenerate_faces"]:
-        errors.append("Prepare a closed, manifold surface without degenerate triangles before meshing")
+    # Graded geometry gate. snappyHexMesh needs a surface that separates inside from
+    # outside; it does not need a perfectly manifold one. A wrapped revision is closed by
+    # construction, so it meshes -- carrying an explicit approximation label instead of a
+    # hard block, which is what left real assemblies permanently unmeshable.
+    wrapped = meta.get("geometry_fidelity") == "wrapped"
+    if not diag["watertight"]:
+        errors.append("Prepare a closed surface before meshing. Auto prepare fixes simple defects; "
+                      "for an assembly whose parts touch or overlap, use Wrap to close it.")
+    elif diag["degenerate_faces"]:
+        errors.append("Remove degenerate triangles before meshing; Auto prepare repairs them")
+    elif diag["nonmanifold_edges"] and not wrapped:
+        # Closed but non-manifold: meshable, and worth flagging rather than blocking.
+        warnings.append(f"{diag['nonmanifold_edges']} non-manifold edges remain where parts meet. "
+                        "The surface is closed so meshing can proceed, but check that the mesh "
+                        "kept those junctions, or use Wrap for a single clean surface.")
     if not diag["winding_consistent"]:
         errors.append("Surface normals are inconsistent; use conservative repair")
+    if wrapped:
+        info = meta.get("wrap") or {}
+        resolution = info.get("wrap_resolution_m")
+        warnings.append(
+            "Geometry is a shrink-wrapped approximation"
+            + (f" on a {resolution*1000:.3g} mm grid" if resolution else "")
+            + ". Features thinner than that are not represented and narrow openings are sealed. "
+              "Loads are computed on the wrap, not on the original CAD.")
     if meta.get("cad_valid") is False:
         errors.append("CAD solid validity check failed")
     warnings.append("Triangle self-intersections are not certified; inspect the geometry and generated mesh")
@@ -108,6 +169,14 @@ def validate(spec: SimulationSpec):
         warnings.append("Wall-resolved treatment usually requires more layers; verify first-cell y+ and layer coverage")
     if spec.flow.speed==0:
         warnings.append("Freestream force coefficients are undefined at zero reference speed")
+    if spec.use_case and spec.use_case.kind=='aerodynamics':
+        # Catch a travel direction edited after the area was confirmed: the stored area
+        # would still describe the old direction and silently bias Cd.
+        silhouette=projected_area(mesh,spec.references.drag_axis)
+        if silhouette>0 and abs(spec.references.area-silhouette)/silhouette>0.05:
+            warnings.append(f"Reference area {spec.references.area:.4g} m² differs from the frontal area "
+                            f"projected along the current travel direction ({silhouette:.4g} m²); "
+                            "confirm which area the drag coefficient should use")
     from .workflow import enrich
     return enrich({"valid":not errors,"errors":errors,"warnings":warnings,
             "reynolds":spec.fluid.density*max_speed*spec.references.length/spec.fluid.dynamic_viscosity,

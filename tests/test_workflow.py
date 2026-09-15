@@ -104,7 +104,10 @@ def test_default_views_are_idempotent_and_keep_rotor_selection():
     g=geometry.add_primitive(Primitive(shape='sphere',radius=.1));patches=[p['name'] for p in g['patches']]
     s=SimulationSpec.model_validate(presets.generate(PresetRequest(geometry_id=g['id'],kind='propeller',patches=patches,speed=0,rpm=10))['spec'])
     job=db.enqueue(s.model_dump());queue_default_views(job['id'],s);queue_default_views(job['id'],s)
-    assert len([r for r in db.runs() if r['kind']=='view'])==2
+    expected=len(default_views(s))
+    # Requeueing must not duplicate: the per-index view ids are deterministic.
+    assert expected>1
+    assert len([r for r in db.runs() if r['kind']=='view'])==expected
     assert default_views(s)[0].patches==patches
     with TestClient(app) as c:
         assert all(v['automatic'] for v in c.get(f"/api/runs/{job['id']}/views").json())
