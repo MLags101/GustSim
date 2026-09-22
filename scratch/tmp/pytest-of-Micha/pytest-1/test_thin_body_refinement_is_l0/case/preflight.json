@@ -1,0 +1,90 @@
+{
+  "valid": true,
+  "errors": [],
+  "warnings": [
+    "Triangle self-intersections are not certified; inspect the geometry and generated mesh",
+    "Fully turbulent k\u2013\u03c9 SST; transition is not modeled. Check y+ after the run",
+    "Requested 3 near-wall layers do not fit in the 3.64 mm surface cell (stack 6.19 mm). About 1 layers fit before the stack exceeds the cell snappyHexMesh grows into. Reduce the layer count or refine the surface. Achieved coverage is still measured after meshing."
+  ],
+  "reynolds": 659726.0273972602,
+  "estimated_mach": 0.05830903790087463,
+  "validation_status": "experimental_validation_pending",
+  "findings": [
+    {
+      "code": "units",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "Model dimensions and units are available in metres"
+    },
+    {
+      "code": "closed_surface",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "Surface must be closed; wrap the assembly or cap planar openings"
+    },
+    {
+      "code": "manifold",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "No nonmanifold edges where parts meet"
+    },
+    {
+      "code": "triangles",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "No degenerate triangles; Auto prepare can repair them"
+    },
+    {
+      "code": "normals",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "Consistent surface normals"
+    },
+    {
+      "code": "cad_validity",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "Imported CAD validity check must not fail"
+    },
+    {
+      "code": "warning_0",
+      "stage": "setup",
+      "control": "mesh-resolution",
+      "status": "info",
+      "detail": "Triangle self-intersections are not certified; inspect the geometry and generated mesh"
+    },
+    {
+      "code": "warning_1",
+      "stage": "setup",
+      "control": "mesh-resolution",
+      "status": "info",
+      "detail": "Fully turbulent k\u2013\u03c9 SST; transition is not modeled. Check y+ after the run"
+    },
+    {
+      "code": "warning_2",
+      "stage": "setup",
+      "control": "mesh-resolution",
+      "status": "review",
+      "detail": "Requested 3 near-wall layers do not fit in the 3.64 mm surface cell (stack 6.19 mm). About 1 layers fit before the stack exceeds the cell snappyHexMesh grows into. Reduce the layer count or refine the surface. Achieved coverage is still measured after meshing."
+    }
+  ],
+  "configuration_id": "5bd5a260b9e894b9cdb16f16d9373e81fa2781a56a9277b3e5869054114e61ec",
+  "geometry_ready": true,
+  "layer_plan": {
+    "background_cell_m": 0.2326923076923077,
+    "surface_cell_m": 0.003635817307692308,
+    "refinement_level": 6,
+    "requested_layers": 3,
+    "feasible_layers": 1,
+    "fits": false,
+    "requested_stack_m": 0.006186501644681656,
+    "feasible_stack_m": 0.001699588363923532,
+    "detail": "Requested 3 near-wall layers do not fit in the 3.64 mm surface cell (stack 6.19 mm). About 1 layers fit before the stack exceeds the cell snappyHexMesh grows into. Reduce the layer count or refine the surface. Achieved coverage is still measured after meshing."
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "id": "32ff846a26544d3fb060cdbc4f804db5",
+  "parent_id": null,
+  "filename": "primitive.stl",
+  "sha256": "61f0012f4089259b7509941a7746ff17c34b938ded2b488ac287e0d5f3ff2cbb",
+  "source_sha256": null,
+  "units": "m",
+  "units_confirmed": true,
+  "bounds": [
+    [
+      -0.2,
+      -0.1,
+      -0.1
+    ],
+    [
+      0.2,
+      0.1,
+      0.1
+    ]
+  ],
+  "dimensions": [
+    0.4,
+    0.2,
+    0.2
+  ],
+  "triangles": 256,
+  "vertices": 130,
+  "patches": [
+    {
+      "name": "primitive_0",
+      "group": 0,
+      "triangles": 64
+    },
+    {
+      "name": "primitive_1",
+      "group": 1,
+      "triangles": 128
+    },
+    {
+      "name": "primitive_2",
+      "group": 2,
+      "triangles": 64
+    }
+  ],
+  "operations": [
+    {
+      "shape": "cylinder",
+      "role": "enclosure",
+      "name": "primitive",
+      "center": [
+        0,
+        0,
+        0
+      ],
+      "dimensions": [
+        1,
+        1,
+        1
+      ],
+      "radius": 0.1,
+      "inner_radius": 0.4,
+      "length": 0.4,
+      "axis": [
+        1,
+        0,
+        0
+      ]
+    }
+  ],
+  "diagnostics": {
+    "watertight": true,
+    "winding_consistent": true,
+    "open_edges": 0,
+    "nonmanifold_edges": 0,
+    "duplicate_faces": 0,
+    "degenerate_faces": 0,
+    "small_faces": 0,
+    "components": 1,
+    "self_intersections": "not_evaluated",
+    "open_loops": [],
+    "volume_m3": 0.01254619396218376
+  }
+}

@@ -1,0 +1,19 @@
+/* GustSim · OpenCFD OpenFOAM v2606 */
+FoamFile
+{
+ version 2.0;
+ format ascii;
+ class volScalarField;
+ object nut;
+}
+dimensions [0 2 -1 0 0 0 0];
+internalField uniform 0;
+boundaryField
+{
+surface_0 { type calculated; value uniform 0; }
+surface_1 { type calculated; value uniform 0; }
+surface_2 { type nutkWallFunction; value uniform 0; }
+surface_3 { type nutkWallFunction; value uniform 0; }
+surface_4 { type nutkWallFunction; value uniform 0; }
+surface_5 { type nutkWallFunction; value uniform 0; }
+}

@@ -1,0 +1,9 @@
+/* GustSim · OpenCFD OpenFOAM v2606 */
+FoamFile
+{
+ version 2.0;
+ format ascii;
+ class dictionary;
+ object MRFProperties;
+}
+rotor { active yes; cellZone rotor; nonRotatingPatches (inlet outlet front back ground top); origin (0 0 0); axis (1 0 0); omega -10.471975511965978; }

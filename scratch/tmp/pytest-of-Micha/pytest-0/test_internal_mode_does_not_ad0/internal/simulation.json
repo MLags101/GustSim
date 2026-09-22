@@ -1,0 +1,219 @@
+{
+  "project_id": null,
+  "schema_version": 1,
+  "name": "duct · baseline",
+  "geometry_id": "980e9ad451c84a30af2f35ab3b915528",
+  "mode": "internal",
+  "fluid": {
+    "name": "air",
+    "density": 1.204,
+    "dynamic_viscosity": 0.00001825,
+    "temperature_k": 293.15,
+    "reference_pressure_pa": 101325.0,
+    "vapor_pressure_pa": 2339.0,
+    "speed_of_sound": 343.0
+  },
+  "flow": {
+    "speed": 20.0,
+    "alpha_deg": 0.0,
+    "beta_deg": 0.0,
+    "turbulence": "kOmegaSST",
+    "intensity": 0.01,
+    "length_scale": 0.1
+  },
+  "domain": {
+    "minimum": [
+      -7.0,
+      -6.5,
+      -6.5
+    ],
+    "maximum": [
+      17.0,
+      6.5,
+      6.5
+    ],
+    "fluid_point": [
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "boundaries": [
+    {
+      "patch": "surface_0",
+      "kind": "velocity_inlet",
+      "velocity": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "pressure_pa": 0.0,
+      "flow_rate": 0.01,
+      "origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "rpm": 0.0
+    },
+    {
+      "patch": "surface_1",
+      "kind": "pressure_outlet",
+      "velocity": null,
+      "pressure_pa": 0.0,
+      "flow_rate": 0.01,
+      "origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "rpm": 0.0
+    },
+    {
+      "patch": "surface_2",
+      "kind": "wall",
+      "velocity": null,
+      "pressure_pa": 0.0,
+      "flow_rate": 0.01,
+      "origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "rpm": 0.0
+    },
+    {
+      "patch": "surface_3",
+      "kind": "wall",
+      "velocity": null,
+      "pressure_pa": 0.0,
+      "flow_rate": 0.01,
+      "origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "rpm": 0.0
+    },
+    {
+      "patch": "surface_4",
+      "kind": "wall",
+      "velocity": null,
+      "pressure_pa": 0.0,
+      "flow_rate": 0.01,
+      "origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "rpm": 0.0
+    },
+    {
+      "patch": "surface_5",
+      "kind": "wall",
+      "velocity": null,
+      "pressure_pa": 0.0,
+      "flow_rate": 0.01,
+      "origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "rpm": 0.0
+    }
+  ],
+  "rotation": {
+    "enabled": false,
+    "origin": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "axis": [
+      1.0,
+      0.0,
+      0.0
+    ],
+    "rpm": 2000.0,
+    "radius": 0.6,
+    "length": 0.5,
+    "blade_radius": 0.5,
+    "patches": [],
+    "stationary_patches": []
+  },
+  "mesh": {
+    "body_level": 3,
+    "preset": "standard",
+    "base_cells": 24,
+    "surface_level": 2,
+    "feature_level": 3,
+    "layers": 3,
+    "first_layer_m": 0.0019523143578110637,
+    "expansion_ratio": 1.2,
+    "max_cells": 2000000,
+    "wall_treatment": "wall_function"
+  },
+  "solver": {
+    "processes": 4,
+    "iterations": 1000,
+    "write_interval": 100,
+    "residual_target": 0.00001,
+    "timeout_minutes": 120
+  },
+  "references": {
+    "area": 1.0,
+    "length": 2.0,
+    "origin": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "drag_axis": [
+      1.0,
+      0.0,
+      0.0
+    ],
+    "lift_axis": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "thrust_axis": [
+      -1.0,
+      0.0,
+      0.0
+    ]
+  },
+  "regions": [],
+  "use_case": null
+}

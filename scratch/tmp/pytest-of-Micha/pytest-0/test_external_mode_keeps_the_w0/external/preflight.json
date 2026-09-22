@@ -1,0 +1,82 @@
+{
+  "valid": true,
+  "errors": [],
+  "warnings": [
+    "Triangle self-intersections are not certified; inspect the geometry and generated mesh",
+    "Fully turbulent k\u2013\u03c9 SST; transition is not modeled. Check y+ after the run"
+  ],
+  "reynolds": 8253172.602739727,
+  "estimated_mach": 0.08104956268221575,
+  "validation_status": "experimental_validation_pending",
+  "findings": [
+    {
+      "code": "units",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "Model dimensions and units are available in metres"
+    },
+    {
+      "code": "closed_surface",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "Surface must be closed; wrap the assembly or cap planar openings"
+    },
+    {
+      "code": "manifold",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "No nonmanifold edges where parts meet"
+    },
+    {
+      "code": "triangles",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "No degenerate triangles; Auto prepare can repair them"
+    },
+    {
+      "code": "normals",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "Consistent surface normals"
+    },
+    {
+      "code": "cad_validity",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "Imported CAD validity check must not fail"
+    },
+    {
+      "code": "warning_0",
+      "stage": "setup",
+      "control": "mesh-resolution",
+      "status": "info",
+      "detail": "Triangle self-intersections are not certified; inspect the geometry and generated mesh"
+    },
+    {
+      "code": "warning_1",
+      "stage": "setup",
+      "control": "mesh-resolution",
+      "status": "info",
+      "detail": "Fully turbulent k\u2013\u03c9 SST; transition is not modeled. Check y+ after the run"
+    }
+  ],
+  "configuration_id": "e52b7c3e2d3b028287c7d080a21e65f69aae44a83fcac54f684d17980f7bdff7",
+  "geometry_ready": true,
+  "layer_plan": {
+    "background_cell_m": 2.1846153827813954,
+    "surface_cell_m": 0.13653846142383722,
+    "refinement_level": 4,
+    "requested_layers": 3,
+    "feasible_layers": 3,
+    "fits": true,
+    "requested_stack_m": 0.007706716506762223,
+    "feasible_stack_m": 0.007706716506762224,
+    "detail": "3 requested layers fit inside the 137 mm surface cell (stack 7.71 mm). This is a geometric check; achieved coverage is measured after meshing."
+  }
+}

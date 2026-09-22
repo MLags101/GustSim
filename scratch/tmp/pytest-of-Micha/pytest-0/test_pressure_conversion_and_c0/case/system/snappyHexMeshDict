@@ -1,0 +1,46 @@
+/* GustSim · OpenCFD OpenFOAM v2606 */
+FoamFile
+{
+ version 2.0;
+ format ascii;
+ class dictionary;
+ object snappyHexMeshDict;
+}
+
+castellatedMesh true;
+snap true;
+addLayers true;
+geometry { sphere_0.stl { type triSurfaceMesh; name sphere_0; }
+bodyResolution { type searchableBox; min (-0.75 -0.75 -0.75); max (0.75 0.75 0.75); }
+wake { type searchableBox; min (-0.6 -0.6 -0.6); max (5.6 0.6 0.6); } }
+castellatedMeshControls
+{
+ maxLocalCells 2000000; maxGlobalCells 2000000; minRefinementCells 0;
+ maxLoadUnbalance 0.1; nCellsBetweenLevels 3;
+ features ({ file "sphere_0.eMesh"; level 3; });
+ refinementSurfaces { sphere_0 { level (2 2); patchInfo { type wall; } } }
+ resolveFeatureAngle 30;
+ refinementRegions { bodyResolution { mode inside; levels ((1e15 2)); } wake { mode inside; levels ((1e15 1)); } }
+ locationInMesh (-3 -3 -3);
+ allowFreeStandingZoneFaces true;
+}
+snapControls { nSmoothPatch 3; tolerance 2; nSolveIter 30; nRelaxIter 5; nFeatureSnapIter 10; implicitFeatureSnap false; explicitFeatureSnap true; multiRegionFeatureSnap true; }
+addLayersControls
+{
+ relativeSizes false;
+ layers { sphere_0 { nSurfaceLayers 3; } }
+ expansionRatio 1.2; firstLayerThickness 0.001821573705688718; minThickness 0.0001821573705688718;
+ nGrow 0; featureAngle 60; slipFeatureAngle 30; nRelaxIter 3; nSmoothSurfaceNormals 1;
+ nSmoothNormals 3; nSmoothThickness 10; maxFaceThicknessRatio 0.5; maxThicknessToMedialRatio 0.3;
+ minMedialAxisAngle 90; nBufferCellsNoExtrude 0; nLayerIter 50; nRelaxedIter 20;
+}
+meshQualityControls
+{
+ maxNonOrtho 65; maxBoundarySkewness 20; maxInternalSkewness 4; maxConcave 80;
+ minVol 1e-13; minTetQuality 1e-15; minArea -1; minTwist 0.02;
+ minDeterminant 0.001; minFaceWeight 0.02; minVolRatio 0.01; minTriangleTwist -1;
+ nSmoothScale 4; errorReduction 0.75; relaxed { maxNonOrtho 75; }
+}
+writeFlags (scalarLevels layerSets layerFields);
+mergeTolerance 1e-6;
+

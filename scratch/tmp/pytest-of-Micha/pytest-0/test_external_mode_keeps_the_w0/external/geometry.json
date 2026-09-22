@@ -1,0 +1,78 @@
+{
+  "id": "a7e5d63c340f46349f800aa54042e18c",
+  "parent_id": null,
+  "filename": "car.stl",
+  "sha256": "33fc2c49bf9e1f59d51e2f205337ff7faa1a07a07123559cade0e2e0121ddc72",
+  "source_sha256": "eac336a71da7d44b4221d8a223c0a494af1791cdd02f08b774fb77e99afd16e8",
+  "units": "m",
+  "units_confirmed": true,
+  "bounds": [
+    [
+      -2.25,
+      -0.8999999761581421,
+      -0.699999988079071
+    ],
+    [
+      2.25,
+      0.8999999761581421,
+      0.699999988079071
+    ]
+  ],
+  "dimensions": [
+    4.5,
+    1.7999999523162842,
+    1.399999976158142
+  ],
+  "triangles": 12,
+  "vertices": 8,
+  "patches": [
+    {
+      "name": "surface_0",
+      "group": 0,
+      "triangles": 2
+    },
+    {
+      "name": "surface_1",
+      "group": 1,
+      "triangles": 2
+    },
+    {
+      "name": "surface_2",
+      "group": 2,
+      "triangles": 2
+    },
+    {
+      "name": "surface_3",
+      "group": 3,
+      "triangles": 2
+    },
+    {
+      "name": "surface_4",
+      "group": 4,
+      "triangles": 2
+    },
+    {
+      "name": "surface_5",
+      "group": 5,
+      "triangles": 2
+    }
+  ],
+  "operations": [
+    {
+      "import_units": "m"
+    }
+  ],
+  "diagnostics": {
+    "watertight": true,
+    "winding_consistent": true,
+    "open_edges": 0,
+    "nonmanifold_edges": 0,
+    "duplicate_faces": 0,
+    "degenerate_faces": 0,
+    "small_faces": 0,
+    "components": 1,
+    "self_intersections": "not_evaluated",
+    "open_loops": [],
+    "volume_m3": 11.339999506473546
+  }
+}

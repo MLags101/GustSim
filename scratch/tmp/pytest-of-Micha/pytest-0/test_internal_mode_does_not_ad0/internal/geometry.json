@@ -1,0 +1,78 @@
+{
+  "id": "980e9ad451c84a30af2f35ab3b915528",
+  "parent_id": null,
+  "filename": "duct.stl",
+  "sha256": "a73c2dd0194d0fdecfc221afd71f8646e431ecea47d2acf9c91b6258245a6448",
+  "source_sha256": "88cab4590d7b2dde72f8d9cbe867cbb449af1852a6e9aa469bf51aa4fa0fde66",
+  "units": "m",
+  "units_confirmed": true,
+  "bounds": [
+    [
+      -1.0,
+      -0.5,
+      -0.5
+    ],
+    [
+      1.0,
+      0.5,
+      0.5
+    ]
+  ],
+  "dimensions": [
+    2.0,
+    1.0,
+    1.0
+  ],
+  "triangles": 12,
+  "vertices": 8,
+  "patches": [
+    {
+      "name": "surface_0",
+      "group": 0,
+      "triangles": 2
+    },
+    {
+      "name": "surface_1",
+      "group": 1,
+      "triangles": 2
+    },
+    {
+      "name": "surface_2",
+      "group": 2,
+      "triangles": 2
+    },
+    {
+      "name": "surface_3",
+      "group": 3,
+      "triangles": 2
+    },
+    {
+      "name": "surface_4",
+      "group": 4,
+      "triangles": 2
+    },
+    {
+      "name": "surface_5",
+      "group": 5,
+      "triangles": 2
+    }
+  ],
+  "operations": [
+    {
+      "import_units": "m"
+    }
+  ],
+  "diagnostics": {
+    "watertight": true,
+    "winding_consistent": true,
+    "open_edges": 0,
+    "nonmanifold_edges": 0,
+    "duplicate_faces": 0,
+    "degenerate_faces": 0,
+    "small_faces": 0,
+    "components": 1,
+    "self_intersections": "not_evaluated",
+    "open_loops": [],
+    "volume_m3": 2.0
+  }
+}

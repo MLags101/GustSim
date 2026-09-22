@@ -1,0 +1,82 @@
+{
+  "valid": true,
+  "errors": [],
+  "warnings": [
+    "Triangle self-intersections are not certified; inspect the geometry and generated mesh",
+    "Requested 3 near-wall layers do not fit in the 25 mm surface cell (stack 72.8 mm). About 0 layers fit before the stack exceeds the cell snappyHexMesh grows into. Reduce the layer count or refine the surface. Achieved coverage is still measured after meshing."
+  ],
+  "reynolds": 8413.40128342706,
+  "estimated_mach": 0.0009295095879535649,
+  "validation_status": "experimental_validation_pending",
+  "findings": [
+    {
+      "code": "units",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "Model dimensions and units are available in metres"
+    },
+    {
+      "code": "closed_surface",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "Surface must be closed; wrap the assembly or cap planar openings"
+    },
+    {
+      "code": "manifold",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "No nonmanifold edges where parts meet"
+    },
+    {
+      "code": "triangles",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "No degenerate triangles; Auto prepare can repair them"
+    },
+    {
+      "code": "normals",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "Consistent surface normals"
+    },
+    {
+      "code": "cad_validity",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "Imported CAD validity check must not fail"
+    },
+    {
+      "code": "warning_0",
+      "stage": "setup",
+      "control": "mesh-resolution",
+      "status": "info",
+      "detail": "Triangle self-intersections are not certified; inspect the geometry and generated mesh"
+    },
+    {
+      "code": "warning_1",
+      "stage": "setup",
+      "control": "mesh-resolution",
+      "status": "review",
+      "detail": "Requested 3 near-wall layers do not fit in the 25 mm surface cell (stack 72.8 mm). About 0 layers fit before the stack exceeds the cell snappyHexMesh grows into. Reduce the layer count or refine the surface. Achieved coverage is still measured after meshing."
+    }
+  ],
+  "configuration_id": "cdb221a6a7382ceefd6e0912ded1abed31e0da4a710f1e52d7c82ef0ea3cb987",
+  "geometry_ready": true,
+  "layer_plan": {
+    "background_cell_m": 0.20000000000000004,
+    "surface_cell_m": 0.025000000000000005,
+    "refinement_level": 3,
+    "requested_layers": 3,
+    "feasible_layers": 0,
+    "fits": false,
+    "requested_stack_m": 0.0728,
+    "feasible_stack_m": 0.0,
+    "detail": "Requested 3 near-wall layers do not fit in the 25 mm surface cell (stack 72.8 mm). About 0 layers fit before the stack exceeds the cell snappyHexMesh grows into. Reduce the layer count or refine the surface. Achieved coverage is still measured after meshing."
+  }
+}

@@ -1,0 +1,25 @@
+/* GustSim · OpenCFD OpenFOAM v2606 */
+FoamFile
+{
+ version 2.0;
+ format ascii;
+ class dictionary;
+ object controlDict;
+}
+application simpleFoam;
+startFrom startTime; startTime 0; stopAt endTime; endTime 1000; deltaT 1;
+writeControl timeStep; writeInterval 100; purgeWrite 0;
+writeFormat binary; writePrecision 10; writeCompression off; timeFormat general; timePrecision 10;
+runTimeModifiable false;
+functions { loads { type forces; libs ("libforces.so"); patches (primitive_1); rho rhoInf; rhoInf 998.2; pRef 0; CofR (0 0 0); log true; writeControl timeStep; writeInterval 1; }
+load_primitive_1 { type forces; libs ("libforces.so"); patches (primitive_1); rho rhoInf; rhoInf 998.2; pRef 0; CofR (0 0 0); log true; writeControl timeStep; writeInterval 1; }
+residuals { type solverInfo; libs ("libutilityFunctionObjects.so"); fields (p U); writeControl timeStep; writeInterval 1; }
+totalPressureField { type pressure; libs (fieldFunctionObjects); mode total; result gustsimTotalPressure; rho rhoInf; rhoInf 998.2; pRef 0; executeControl timeStep; executeInterval 1; writeControl timeStep; writeInterval 1; }
+flux_primitive_0 { type surfaceFieldValue; libs ("libfieldFunctionObjects.so"); regionType patch; name primitive_0; operation sum; fields (phi); writeFields false; writeControl timeStep; writeInterval 1; }
+pressure_primitive_0 { type surfaceFieldValue; libs ("libfieldFunctionObjects.so"); regionType patch; name primitive_0; operation areaAverage; fields (p); writeFields false; writeControl timeStep; writeInterval 1; }
+totalpressure_primitive_0 { type surfaceFieldValue; libs (fieldFunctionObjects); regionType patch; name primitive_0; operation weightedAverage; weightField phi; fields (gustsimTotalPressure); writeFields false; writeControl timeStep; writeInterval 1; }
+absoluteFlux_primitive_0 { type surfaceFieldValue; libs (fieldFunctionObjects); regionType patch; name primitive_0; operation sumMag; fields (phi); writeFields false; writeControl timeStep; writeInterval 1; }
+flux_primitive_2 { type surfaceFieldValue; libs ("libfieldFunctionObjects.so"); regionType patch; name primitive_2; operation sum; fields (phi); writeFields false; writeControl timeStep; writeInterval 1; }
+pressure_primitive_2 { type surfaceFieldValue; libs ("libfieldFunctionObjects.so"); regionType patch; name primitive_2; operation areaAverage; fields (p); writeFields false; writeControl timeStep; writeInterval 1; }
+totalpressure_primitive_2 { type surfaceFieldValue; libs (fieldFunctionObjects); regionType patch; name primitive_2; operation weightedAverage; weightField phi; fields (gustsimTotalPressure); writeFields false; writeControl timeStep; writeInterval 1; }
+absoluteFlux_primitive_2 { type surfaceFieldValue; libs (fieldFunctionObjects); regionType patch; name primitive_2; operation sumMag; fields (phi); writeFields false; writeControl timeStep; writeInterval 1; } }

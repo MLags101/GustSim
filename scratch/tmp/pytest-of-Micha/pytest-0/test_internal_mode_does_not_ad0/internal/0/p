@@ -1,0 +1,19 @@
+/* GustSim · OpenCFD OpenFOAM v2606 */
+FoamFile
+{
+ version 2.0;
+ format ascii;
+ class volScalarField;
+ object p;
+}
+dimensions [0 2 -2 0 0 0 0];
+internalField uniform 0;
+boundaryField
+{
+surface_0 { type zeroGradient; }
+surface_1 { type fixedValue; value uniform 0.0; }
+surface_2 { type zeroGradient; }
+surface_3 { type zeroGradient; }
+surface_4 { type zeroGradient; }
+surface_5 { type zeroGradient; }
+}

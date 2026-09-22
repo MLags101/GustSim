@@ -1,0 +1,98 @@
+{
+  "id": "66dfac8e2cc94ef88ae23024bf8f41af",
+  "parent_id": null,
+  "filename": "primitive.stl",
+  "sha256": "a40696f48d55857e9d0370bedbe822c79e2bf4b444b78ae97f0435cbc61a3605",
+  "source_sha256": null,
+  "units": "m",
+  "units_confirmed": true,
+  "bounds": [
+    [
+      -0.25,
+      -0.0125,
+      -0.02
+    ],
+    [
+      0.25,
+      0.0125,
+      0.02
+    ]
+  ],
+  "dimensions": [
+    0.5,
+    0.025,
+    0.04
+  ],
+  "triangles": 12,
+  "vertices": 8,
+  "patches": [
+    {
+      "name": "primitive_0",
+      "group": 0,
+      "triangles": 2
+    },
+    {
+      "name": "primitive_1",
+      "group": 1,
+      "triangles": 2
+    },
+    {
+      "name": "primitive_2",
+      "group": 2,
+      "triangles": 2
+    },
+    {
+      "name": "primitive_3",
+      "group": 3,
+      "triangles": 2
+    },
+    {
+      "name": "primitive_4",
+      "group": 4,
+      "triangles": 2
+    },
+    {
+      "name": "primitive_5",
+      "group": 5,
+      "triangles": 2
+    }
+  ],
+  "operations": [
+    {
+      "shape": "box",
+      "role": "solid",
+      "name": "primitive",
+      "center": [
+        0,
+        0,
+        0
+      ],
+      "dimensions": [
+        0.5,
+        0.025,
+        0.04
+      ],
+      "radius": 0.5,
+      "inner_radius": 0.4,
+      "length": 1,
+      "axis": [
+        1,
+        0,
+        0
+      ]
+    }
+  ],
+  "diagnostics": {
+    "watertight": true,
+    "winding_consistent": true,
+    "open_edges": 0,
+    "nonmanifold_edges": 0,
+    "duplicate_faces": 0,
+    "degenerate_faces": 0,
+    "small_faces": 0,
+    "components": 1,
+    "self_intersections": "not_evaluated",
+    "open_loops": [],
+    "volume_m3": 0.0005
+  }
+}

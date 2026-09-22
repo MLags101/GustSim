@@ -9,13 +9,25 @@ DOMAIN_PATCHES = ["inlet", "outlet", "front", "back", "ground", "top"]
 TARGET_YPLUS = {"wall_function": 50.0, "resolved": 1.0}
 
 
+def skin_friction(turbulence, reynolds):
+    """Local flat-plate skin friction at the reference length.
+
+    Laminar flow uses the Blasius value 0.664 Re^-0.5. Turbulent flow uses the
+    1/7-power local value 0.058 Re^-0.2. These estimate wall shear for a y+ target.
+    They do not predict transition, and a laminar run keeps the laminar value even
+    when the Reynolds number is high.
+    """
+    if turbulence == "laminar":
+        return 0.664*reynolds**-0.5
+    return 0.058*reynolds**-0.2
+
+
 def first_layer_thickness(spec, reference_speed=None):
     """First prism-layer thickness for the configured wall treatment, in metres.
 
-    Uses the flat-plate correlation Cf = 0.058 Re^-0.2 to estimate wall shear, then
-    inverts y+ = rho u_tau y / mu. The previous default was `length * 0.001` -- a purely
-    geometric guess that ignored speed, fluid and wall treatment entirely, and did not
-    change when the user asked for a wall-resolved mesh.
+    Estimates wall shear from the local flat-plate skin friction, then inverts
+    y+ = rho u_tau y / mu. The thickness changes with speed, fluid, turbulence
+    treatment and the requested wall treatment.
 
     This sizes the first cell; it does not guarantee the achieved y+, which is only
     known after solving.
@@ -31,7 +43,7 @@ def first_layer_thickness(spec, reference_speed=None):
     reynolds = density*speed*length/viscosity
     if not np.isfinite(reynolds) or reynolds <= 1:
         return length*0.001
-    friction = 0.058*reynolds**-0.2
+    friction = skin_friction(spec.flow.turbulence, reynolds)
     wall_shear = 0.5*density*speed*speed*friction
     if wall_shear <= 0:
         return length*0.001
@@ -41,6 +53,70 @@ def first_layer_thickness(spec, reference_speed=None):
     thickness = 2*centroid
     # Keep it physically sensible relative to the model.
     return float(min(max(thickness, length*1e-6), length*0.05))
+
+
+def background_cell_size(spec):
+    """Edge length of the blockMesh cells, matching the case compiler.
+
+    Counts follow snappy's background: at least four cells on each axis, otherwise
+    `base_cells` along the longest side. The returned edge is the smallest of the
+    three, which is the tightest cell a prism stack could be asked to fit.
+    """
+    extent = np.asarray(spec.domain.maximum, dtype=float) - np.asarray(spec.domain.minimum, dtype=float)
+    longest = float(np.max(extent))
+    if longest <= 0:
+        return 0.0
+    counts = np.maximum(4, np.ceil(spec.mesh.base_cells * extent / longest))
+    return float(np.min(extent / counts))
+
+
+def layer_stack_thickness(first, ratio, count):
+    if count <= 0:
+        return 0.0
+    if abs(ratio - 1) < 1e-9:
+        return first * count
+    return first * (ratio**count - 1) / (ratio - 1)
+
+
+def layer_plan(spec):
+    """Whether the requested prism stack can fit in the castellated surface cell.
+
+    snappyHexMesh grows layers into that cell and drops them when the stack, or the
+    outer layer, is thicker than the cell. Requested layers are still not achieved
+    layers: this only says the request is geometrically possible.
+    """
+    background = background_cell_size(spec)
+    level = max(int(spec.mesh.surface_level), int(spec.mesh.body_level or 0))
+    surface = background / 2**level if background else 0.0
+    first = float(spec.mesh.first_layer_m)
+    ratio = float(spec.mesh.expansion_ratio)
+    requested = int(spec.mesh.layers)
+    # The outer layer has to transition into the hex it displaces. Half the cell
+    # matches the case's maxFaceThicknessRatio of 0.5; the whole stack also has to
+    # stay inside that cell.
+    outer_limit = 0.5 * surface
+    feasible = 0
+    total = 0.0
+    for index in range(requested):
+        thick = first * (ratio ** index)
+        if surface <= 0 or thick > outer_limit or total + thick > surface:
+            break
+        total += thick
+        feasible += 1
+    requested_stack = layer_stack_thickness(first, ratio, requested)
+    fits = feasible == requested
+    if requested == 0:
+        detail = "No near-wall layers were requested."
+    elif fits:
+        detail = (f"{requested} requested layers fit inside the {surface*1000:.3g} mm surface cell "
+                  f"(stack {requested_stack*1000:.3g} mm). This is a geometric check; achieved coverage is measured after meshing.")
+    else:
+        detail = (f"Requested {requested} near-wall layers do not fit in the {surface*1000:.3g} mm surface cell "
+                  f"(stack {requested_stack*1000:.3g} mm). About {feasible} layers fit before the stack exceeds the cell "
+                  "snappyHexMesh grows into. Reduce the layer count or refine the surface. Achieved coverage is still measured after meshing.")
+    return {"background_cell_m": background, "surface_cell_m": surface, "refinement_level": level,
+            "requested_layers": requested, "feasible_layers": feasible, "fits": fits,
+            "requested_stack_m": requested_stack, "feasible_stack_m": total, "detail": detail}
 
 
 def defaults(identifier):
@@ -177,7 +253,12 @@ def validate(spec: SimulationSpec):
             warnings.append(f"Reference area {spec.references.area:.4g} m² differs from the frontal area "
                             f"projected along the current travel direction ({silhouette:.4g} m²); "
                             "confirm which area the drag coefficient should use")
+    plan = layer_plan(spec)
+    if spec.mesh.layers and not plan["fits"]:
+        warnings.append(plan["detail"])
     from .workflow import enrich
-    return enrich({"valid":not errors,"errors":errors,"warnings":warnings,
+    report = enrich({"valid":not errors,"errors":errors,"warnings":warnings,
             "reynolds":spec.fluid.density*max_speed*spec.references.length/spec.fluid.dynamic_viscosity,
             "estimated_mach":max_speed/spec.fluid.speed_of_sound,"validation_status":"experimental_validation_pending"}, spec, meta)
+    report["layer_plan"] = plan
+    return report

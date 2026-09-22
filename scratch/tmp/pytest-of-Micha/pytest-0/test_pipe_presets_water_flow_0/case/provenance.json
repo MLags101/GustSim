@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "openfoam_version": "2606",
+  "python": "3.12.14",
+  "libraries": {
+    "gustsim": "0.1.0",
+    "numpy": "2.5.2",
+    "trimesh": "4.12.2",
+    "pydantic": "2.13.5",
+    "vtk": "9.6.2",
+    "cadquery-ocp": "7.9.3.1.1"
+  },
+  "native_runtime": null,
+  "geometry_sha256": "61f0012f4089259b7509941a7746ff17c34b938ded2b488ac287e0d5f3ff2cbb",
+  "units": "SI",
+  "pressure": "kinematic in raw case; Pa gauge in derived exports",
+  "time_axis": "SIMPLE iteration, not physical seconds",
+  "validation_status": "experimental_validation_pending"
+}

@@ -18,6 +18,26 @@ export function configurationKey(spec:any){
 }
 export function meshCompatible(mesh:any,spec:any){return !!mesh&&configurationKey(mesh.spec)===configurationKey(spec);}
 
+export function geometrySummary(geometry:any){
+  if(!geometry?.diagnostics)return {tone:'',label:'Awaiting import'};
+  const d=geometry.diagnostics;
+  if(!d.watertight)return {tone:'warn',label:'Open surface'};
+  if(d.degenerate_faces||!d.winding_consistent)return {tone:'warn',label:'Needs repair'};
+  if(d.nonmanifold_edges)return {tone:'warn',label:`Closed · ${d.nonmanifold_edges} non-manifold edges`};
+  return {tone:'good',label:'Closed surface'};
+}
+
+export function preparationNote(current:any,candidate:any){
+  const d=candidate.diagnostics;
+  const counts=`Preparation preview · triangles ${current.triangles.toLocaleString()} → ${candidate.triangles.toLocaleString()} · open edges ${current.diagnostics.open_edges} → ${d.open_edges} · nonmanifold ${current.diagnostics.nonmanifold_edges} → ${d.nonmanifold_edges} · degenerate ${current.diagnostics.degenerate_faces} → ${d.degenerate_faces}.`;
+  let verdict='Openings remain; inspect and cap only intended planar ports.';
+  if(!d.watertight&&d.nonmanifold_edges)verdict='The surface is still open, and non-manifold connections remain.';
+  else if(d.watertight&&d.nonmanifold_edges)verdict=`Closed, with ${d.nonmanifold_edges} non-manifold edges where parts meet. Meshing can proceed. Wrapping builds one clean surface.`;
+  else if(d.watertight)verdict='Closed surface.';
+  if(candidate.geometry_fidelity==='wrapped')verdict=`Wrapped approximation. ${candidate.wrap?.detail||'Loads on this revision are loads on the wrap.'}`;
+  return `${counts} ${verdict}`;
+}
+
 export function stageStates(geometry:any,spec:any,report:any,mesh:any,run:any,ack:string=''){
   const g=geometry?.diagnostics;
   // Mirrors workflow.geometry_findings: non-manifold junctions and a wrapped

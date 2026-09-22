@@ -1,0 +1,73 @@
+{
+  "id": "dc03090e317846a2a24b16159910e9c0",
+  "parent_id": null,
+  "filename": "sphere.stl",
+  "sha256": "2cedfb079d67509dc4346346e132119dbcf80b24e597636cdf1f1fafbfab67d2",
+  "source_sha256": null,
+  "units": "m",
+  "units_confirmed": true,
+  "bounds": [
+    [
+      -0.5,
+      -0.5,
+      -0.5
+    ],
+    [
+      0.5,
+      0.5,
+      0.5
+    ]
+  ],
+  "dimensions": [
+    1.0,
+    1.0,
+    1.0
+  ],
+  "triangles": 1280,
+  "vertices": 642,
+  "patches": [
+    {
+      "name": "sphere_0",
+      "group": 0,
+      "triangles": 1280
+    }
+  ],
+  "operations": [
+    {
+      "shape": "sphere",
+      "role": "solid",
+      "name": "sphere",
+      "center": [
+        0,
+        0,
+        0
+      ],
+      "dimensions": [
+        1,
+        1,
+        1
+      ],
+      "radius": 0.5,
+      "inner_radius": 0.4,
+      "length": 1,
+      "axis": [
+        1,
+        0,
+        0
+      ]
+    }
+  ],
+  "diagnostics": {
+    "watertight": true,
+    "winding_consistent": true,
+    "open_edges": 0,
+    "nonmanifold_edges": 0,
+    "duplicate_faces": 0,
+    "degenerate_faces": 0,
+    "small_faces": 0,
+    "components": 1,
+    "self_intersections": "not_evaluated",
+    "open_loops": [],
+    "volume_m3": 0.5190926021366322
+  }
+}

@@ -238,6 +238,55 @@ def test_first_layer_survives_zero_speed():
     assert thickness > 0 and thickness < spec.references.length
 
 
+def test_laminar_first_layer_uses_blasius_not_the_turbulent_correlation():
+    """A laminar run must not inherit the turbulent skin friction. At this Reynolds
+    number the turbulent value is larger, so the turbulent first cell is thinner."""
+    laminar_spec = _layer_spec(speed=20)
+    laminar_spec.flow.turbulence = 'laminar'
+    turbulent_spec = _layer_spec(speed=20)
+    laminar = validation.first_layer_thickness(laminar_spec)
+    turbulent = validation.first_layer_thickness(turbulent_spec)
+    assert turbulent < laminar
+    ratio = validation.skin_friction('kOmegaSST', 1e6) / validation.skin_friction('laminar', 1e6)
+    assert ratio > 2
+
+
+def test_layer_stack_thicker_than_the_surface_cell_is_a_review_finding():
+    spec = _layer_spec()
+    spec.mesh.layers = 15
+    spec.mesh.first_layer_m = 0.05
+    spec.mesh.expansion_ratio = 1.2
+    spec.mesh.surface_level = 1
+    spec.mesh.body_level = 0
+    plan = validation.layer_plan(spec)
+    assert plan['fits'] is False
+    assert 0 <= plan['feasible_layers'] < 15
+    assert plan['requested_stack_m'] > plan['surface_cell_m']
+    report = validation.validate(spec)
+    finding = next(f for f in report['findings'] if 'do not fit' in f['detail'])
+    assert finding['status'] == 'review'
+    assert report['layer_plan']['feasible_layers'] == plan['feasible_layers']
+
+
+def test_default_layers_fit_and_do_not_add_a_review_finding():
+    spec = _layer_spec()
+    plan = validation.layer_plan(spec)
+    assert plan['fits'] is True
+    assert plan['feasible_layers'] == spec.mesh.layers
+    report = validation.validate(spec)
+    assert not any('do not fit' in f['detail'] for f in report['findings'])
+
+
+def test_one_layer_thicker_than_the_cell_fits_none():
+    spec = _layer_spec()
+    spec.mesh.layers = 4
+    spec.mesh.first_layer_m = spec.references.length
+    spec.mesh.surface_level = 1
+    plan = validation.layer_plan(spec)
+    assert plan['feasible_layers'] == 0
+    assert plan['fits'] is False
+
+
 def test_static_rotor_sizes_against_blade_tip_speed():
     spec = _layer_spec(speed=0)
     spec.rotation.enabled = True

@@ -110,6 +110,14 @@ in a threadpool and drain events after the terminal status, so the final error i
 `recover()` reclaims stranded `generating` runs. The internal-mode wake refinement box is
 gone, and time directories are written binary.
 
+## Agent tools and layer fit (2026-09-22)
+
+`backend/gustsim/agent.py` exposes the public API as tools for a coding agent: `gustsim agent call` and `gustsim mcp` (stdio MCP). The open page registers the same gates for a browser agent. Tools queue new runs, require an explicit acknowledgement of review findings, and return execution, numerical quality, and experimental validation as separate fields. `docs/AGENT.md` is the workflow.
+
+`validation.layer_plan` checks whether the requested prism stack fits the castellated surface cell before meshing. A stack that does not fit is a setup review finding. `validation.skin_friction` uses the Blasius local value for laminar flow and the 1/7-power local value for k–ω SST. Achieved layer coverage is unchanged: it is still parsed from the mesher log after the run.
+
+The Slipstream comparison's laminar-pipe gate, parallel snappyHexMesh, load-based early stop, and `potentialFoam` initialisation are still open. Those last three change the pinned v2606 run and need a Linux worker before they land. The five acceptance gates remain unexecuted.
+
 ### Remaining priorities
 
 1. **Benchmark acceptance campaign — not started.** All five gates in `benchmarks/README.md`

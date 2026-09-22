@@ -1,6 +1,6 @@
 # GustSim
 
-A local browser workbench for STEP/STL preparation, single-phase air/water CFD setup, OpenFOAM v2606 execution, and ParaView results. The API and worker run in Linux containers; Windows needs Docker Desktop with WSL2. Ubuntu needs Docker Engine and the Compose plugin.
+A local workbench for STEP assemblies, internal passages, and one steady MRF rotor, with external flow as the setup those cases share. It prepares CAD, runs steady incompressible air or water on OpenFOAM v2606, and exports a provenance-backed bundle. The API and worker run in Linux containers; Windows needs Docker Desktop with WSL2. Ubuntu needs Docker Engine and the Compose plugin. For the boundary with single-STL external aerodynamics, see [the Slipstream comparison](docs/SLIPSTREAM_COMPARISON.md).
 
 ## Supported workflows
 
@@ -34,7 +34,7 @@ Start with **New simulation** in the top bar. Name each workspace and switch bet
 
 1. **Geometry:** export one assembly STEP with separate, named component bodies and assembled positions preserved, including the rotor. GustSim retains nested components, repeated instances and placements. STL also works with explicit source units. Search, select, hide or isolate components; face selection remains available.
 2. **Setup:** choose pipe flow, an object moving through air or water, or a stationary assembly with a rotor. Preview the generated settings and confirm dimensions, fluid point, directions and selected surfaces. All settings remain editable. Older configurations load as Custom.
-3. **Mesh:** generate and check the mesh here. Follow named stages, an estimated progress bar, elapsed time and logs. Switch between three sections through the model or the full mesh boundary. Thin models receive bounded local refinement before surface fitting. Inspect the actual volume-cell section, required quality checks, boundary preservation and MRF zone findings. Acknowledge actionable findings with **Review mesh & continue**. Failed or unavailable previews are explicit; requested layers are not reported as achieved layers.
+3. **Mesh:** generate and check the mesh here. Follow named stages, an estimated progress bar, elapsed time and logs. Switch between three sections through the model or the full mesh boundary. Thin models receive bounded local refinement before surface fitting. A near-wall stack that cannot fit the surface cell is reported before generation. Inspect the actual volume-cell section, required quality checks, boundary preservation and MRF zone findings. Acknowledge actionable findings with **Review mesh & continue**. Failed or unavailable previews are explicit; requested layers are not reported as achieved layers.
 4. **Run:** solve using the reviewed mesh. Geometry or physics edits invalidate it; study names and solver controls may reuse it. Every attempt preserves its specification, logs and results. Cancellation preserves available artifacts. Guided retries and parameter studies start with new mesh attempts for review before solving. Stage navigation always remains open, while blocked actions explain what needs attention.
 5. **Results:** use the pressure, velocity section and streamline buttons. Toggle **Show object** for context and **Animate tracers** for playback along solved streamlines. This is visualization of steady flow, not transient CFD. Inspect measured quantities, pressure surfaces and longitudinal velocity slices generated once per guided run. Pipe results include volume/mass flow, static pressures and separate total-pressure/head loss; object results include drag/lift and their projected histories; rotor results include thrust, fluid torque, required driving torque/power and load histories. Missing evidence stays unavailable. Field-extraction failure is separate from solve success.
 6. **Export:** download the raw case, histories, VTK, HDF5, ParaView state, PNG, report or complete bundle. Buttons reflect actual artifact availability. Bundles retain definitions, selected surfaces, axes, units, numerical findings and Python/MATLAB readers.
@@ -88,7 +88,7 @@ pnpm run build
 
 For source changes in Docker, use `docker compose -f compose.yaml -f compose.dev.yaml up --build`. Restart the worker after changing its Python code. For web HMR, `pnpm dev` proxies `/api` to port 8000 by default; set `GUSTSIM_API=http://localhost:8080` to target the Compose API instead.
 
-API documentation: http://localhost:8080/docs. CLI entry points: `gustsim import`, `gustsim defaults`, `gustsim validate`, `gustsim compile`, `gustsim run`, and `gustsim worker`. Complete cases always target **OpenCFD v2606**, not the Foundation release series.
+API documentation: http://localhost:8080/docs. CLI entry points: `gustsim import`, `gustsim defaults`, `gustsim validate`, `gustsim compile`, `gustsim run`, and `gustsim worker`. Coding agents use `gustsim agent` and `gustsim mcp` against this API; the workflow and the evidence rules are in [docs/AGENT.md](docs/AGENT.md). Complete cases always target **OpenCFD v2606**, not the Foundation release series.
 
 ## Numerical conventions
 

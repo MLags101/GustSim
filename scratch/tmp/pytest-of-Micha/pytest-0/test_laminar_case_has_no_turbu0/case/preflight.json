@@ -1,0 +1,74 @@
+{
+  "valid": true,
+  "errors": [],
+  "warnings": [
+    "Triangle self-intersections are not certified; inspect the geometry and generated mesh"
+  ],
+  "reynolds": 1319452.0547945204,
+  "estimated_mach": 0.05830903790087463,
+  "validation_status": "experimental_validation_pending",
+  "findings": [
+    {
+      "code": "units",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "Model dimensions and units are available in metres"
+    },
+    {
+      "code": "closed_surface",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "Surface must be closed; wrap the assembly or cap planar openings"
+    },
+    {
+      "code": "manifold",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "No nonmanifold edges where parts meet"
+    },
+    {
+      "code": "triangles",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "No degenerate triangles; Auto prepare can repair them"
+    },
+    {
+      "code": "normals",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "Consistent surface normals"
+    },
+    {
+      "code": "cad_validity",
+      "stage": "geometry",
+      "control": "geometry-diagnostics",
+      "status": "pass",
+      "detail": "Imported CAD validity check must not fail"
+    },
+    {
+      "code": "warning_0",
+      "stage": "setup",
+      "control": "mesh-resolution",
+      "status": "info",
+      "detail": "Triangle self-intersections are not certified; inspect the geometry and generated mesh"
+    }
+  ],
+  "configuration_id": "5450bd7a62edc6ec681f57588fe47f56496bd190fac5b9ef0bf4f297d3f076b3",
+  "geometry_ready": true,
+  "layer_plan": {
+    "background_cell_m": 0.5,
+    "surface_cell_m": 0.125,
+    "refinement_level": 2,
+    "requested_layers": 3,
+    "feasible_layers": 3,
+    "fits": true,
+    "requested_stack_m": 0.006630528288706933,
+    "feasible_stack_m": 0.006630528288706933,
+    "detail": "3 requested layers fit inside the 125 mm surface cell (stack 6.63 mm). This is a geometric check; achieved coverage is measured after meshing."
+  }
+}

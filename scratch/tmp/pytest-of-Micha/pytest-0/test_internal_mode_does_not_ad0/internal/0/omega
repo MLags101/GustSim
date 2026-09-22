@@ -1,0 +1,19 @@
+/* GustSim · OpenCFD OpenFOAM v2606 */
+FoamFile
+{
+ version 2.0;
+ format ascii;
+ class volScalarField;
+ object omega;
+}
+dimensions [0 0 -1 0 0 0 0];
+internalField uniform 4.47213595499958;
+boundaryField
+{
+surface_0 { type fixedValue; value uniform 4.47213595499958; }
+surface_1 { type inletOutlet; inletValue uniform 4.47213595499958; value uniform 4.47213595499958; }
+surface_2 { type omegaWallFunction; value uniform 4.47213595499958; }
+surface_3 { type omegaWallFunction; value uniform 4.47213595499958; }
+surface_4 { type omegaWallFunction; value uniform 4.47213595499958; }
+surface_5 { type omegaWallFunction; value uniform 4.47213595499958; }
+}

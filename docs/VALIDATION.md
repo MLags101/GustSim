@@ -120,3 +120,9 @@ grid size. That label reaches the validation warnings, the stage findings, the m
 summary in the UI, `manifest()` (so HDF5 attributes and the bundle), and a banner in the
 exported HTML report. Loads computed on a wrap are loads on an approximation, and every
 artifact says so.
+
+## Agent tools and near-wall layer fit (2026-09-22)
+
+The coding-agent tools are covered by `tests/test_agent.py` against the public API with the worker offline. That test imports STL, builds a preset, refuses to queue a mesh while the worker is offline, refuses a layer stack that cannot fit until the finding is acknowledged, compiles a case, and exports it. It does not run OpenFOAM and does not change experimental validation.
+
+Laminar first-cell thickness now uses the Blasius skin friction. A requested prism stack thicker than the castellated surface cell is a preflight review finding (`validation.layer_plan`). That finding is a geometric estimate. Achieved layer coverage is still whatever snappyHexMesh reports after meshing. No acceptance gate above was executed.
