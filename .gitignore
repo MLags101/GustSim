@@ -1,6 +1,7 @@
 node_modules/
 .pnpm-store/
 dist/
+dist-share/
 .venv/
 __pycache__/
 .pytest_cache/
@@ -11,3 +12,5 @@ data/
 *.tsbuildinfo
 release/
 gustsim-data.tar.gz
+test-results/
+playwright-report/

@@ -1,0 +1,51 @@
+/* GustSim · OpenCFD OpenFOAM v2606 */
+FoamFile
+{
+ version 2.0;
+ format ascii;
+ class dictionary;
+ object snappyHexMeshDict;
+}
+
+castellatedMesh true;
+snap true;
+addLayers true;
+geometry { primitive_0.stl { type triSurfaceMesh; name primitive_0; }
+primitive_1.stl { type triSurfaceMesh; name primitive_1; }
+primitive_2.stl { type triSurfaceMesh; name primitive_2; }
+bodyResolution { type searchableBox; min (-0.25 -0.15 -0.15); max (0.25 0.15 0.15); } }
+castellatedMeshControls
+{
+ maxLocalCells 2000000; maxGlobalCells 2000000; minRefinementCells 0;
+ maxLoadUnbalance 0.1; nCellsBetweenLevels 3;
+ features ({ file "primitive_0.eMesh"; level 3; }
+{ file "primitive_1.eMesh"; level 3; }
+{ file "primitive_2.eMesh"; level 3; });
+ refinementSurfaces { primitive_0 { level (2 2); patchInfo { type patch; } }
+primitive_1 { level (2 2); patchInfo { type wall; } }
+primitive_2 { level (2 2); patchInfo { type patch; } } }
+ resolveFeatureAngle 30;
+ refinementRegions { bodyResolution { mode inside; levels ((1e15 3)); } }
+ locationInMesh (0 0 0);
+ allowFreeStandingZoneFaces true;
+}
+snapControls { nSmoothPatch 3; tolerance 2; nSolveIter 30; nRelaxIter 5; nFeatureSnapIter 10; implicitFeatureSnap false; explicitFeatureSnap true; multiRegionFeatureSnap true; }
+addLayersControls
+{
+ relativeSizes false;
+ layers { primitive_1 { nSurfaceLayers 3; } }
+ expansionRatio 1.2; firstLayerThickness 0.020000000000000004; minThickness 0.0020000000000000005;
+ nGrow 0; featureAngle 60; slipFeatureAngle 30; nRelaxIter 3; nSmoothSurfaceNormals 1;
+ nSmoothNormals 3; nSmoothThickness 10; maxFaceThicknessRatio 0.5; maxThicknessToMedialRatio 0.3;
+ minMedialAxisAngle 90; nBufferCellsNoExtrude 0; nLayerIter 50; nRelaxedIter 20;
+}
+meshQualityControls
+{
+ maxNonOrtho 65; maxBoundarySkewness 20; maxInternalSkewness 4; maxConcave 80;
+ minVol 1e-13; minTetQuality 1e-15; minArea -1; minTwist 0.02;
+ minDeterminant 0.001; minFaceWeight 0.02; minVolRatio 0.01; minTriangleTwist -1;
+ nSmoothScale 4; errorReduction 0.75; relaxed { maxNonOrtho 75; }
+}
+writeFlags (scalarLevels layerSets layerFields);
+mergeTolerance 1e-6;
+

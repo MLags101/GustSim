@@ -45,7 +45,7 @@ class Domain(Model):
 
 class Boundary(Model):
     patch: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,80}$")
-    kind: Literal["velocity_inlet", "flow_inlet", "pressure_inlet", "pressure_outlet", "wall", "moving_wall", "rotating_wall", "slip", "symmetry", "freestream"]
+    kind: Literal["velocity_inlet", "flow_inlet", "pressure_inlet", "pressure_outlet", "flow_outlet", "wall", "moving_wall", "rotating_wall", "slip", "symmetry", "freestream"]
     velocity: Vec3 | None = None
     pressure_pa: float = 0
     flow_rate: float = Field(default=0.01, gt=0)
@@ -95,6 +95,18 @@ class Mesh(Model):
     expansion_ratio: float = Field(default=1.2, ge=1, le=2)
     max_cells: int = Field(default=2000000, ge=10000, le=30000000)
     wall_treatment: Literal["wall_function", "resolved"] = "wall_function"
+    # v2. Defaults reproduce the v1 case exactly; a `tier` other than custom is resolved
+    # into the numeric fields above by mesh_tiers.apply before validation and launch.
+    tier: Literal["basic", "regular", "advanced", "custom"] = "custom"
+    parallel: bool = True
+    quality_profile: Literal["standard", "relaxed"] = "standard"
+    n_cells_between_levels: int = Field(default=3, ge=1, le=10)
+    nested_wake_boxes: int = Field(default=1, ge=0, le=3)
+    wake_length_factor: float = Field(default=5, ge=1, le=20)
+    # Levels between the surface and the first wake box; 1 is the v1 compiler.
+    wake_level_offset: int = Field(default=1, ge=1, le=4)
+    adaptive_cycles: int = Field(default=0, ge=0, le=3)
+    adaptive_source: "AdaptiveSource | None" = None
 
 class Solver(Model):
     processes: int = Field(default=4, ge=1, le=64)
@@ -102,6 +114,9 @@ class Solver(Model):
     write_interval: int = Field(default=100, ge=1, le=10000)
     residual_target: float = Field(default=1e-5, gt=0, le=0.1)
     timeout_minutes: int = Field(default=120, ge=1, le=10080)
+    numerics: Literal["standard", "robust"] = "standard"
+    initialise: Literal["uniform", "potential"] = "uniform"
+    auto_retry: int = Field(default=0, ge=0, le=3)
 
 class References(Model):
     area: float = Field(default=1, gt=0)
@@ -110,6 +125,13 @@ class References(Model):
     drag_axis: Vec3 = (1, 0, 0)
     lift_axis: Vec3 = (0, 0, 1)
     thrust_axis: Vec3 = (-1, 0, 0)
+    # v2: object frame (forces in model coordinates), axles for the front/rear lift split,
+    # and named part groups whose loads are reported separately.
+    object_forward: Vec3 | None = None
+    object_up: Vec3 = (0, 0, 1)
+    front_axle: Vec3 | None = None
+    rear_axle: Vec3 | None = None
+    force_groups: list["ForceGroup"] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def axes(self):
@@ -144,6 +166,212 @@ class Primitive(Model):
             raise ValueError("Rotating regions must be cylinders")
         return self
 
+class AdaptiveSource(Model):
+    """Refinement surface derived from a solved attempt (adaptive mesh refinement)."""
+    run_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    level: int = Field(default=1, ge=1, le=10)
+    distance_m: float = Field(gt=0)
+
+
+class ForceGroup(Model):
+    name: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,40}$")
+    patches: list[str] = Field(min_length=1)
+
+
+def unit_vector(v, message="Direction must be nonzero"):
+    length = math.sqrt(sum(x*x for x in v))
+    if length < 1e-12:
+        raise ValueError(message)
+    return tuple(x/length for x in v)
+
+
+class Environment(Model):
+    """Ground plane under the model (bottom domain face). 'none' keeps the v1 far field."""
+    ground: Literal["none", "static", "moving", "slip"] = "none"
+    ride_height_m: float = Field(default=0, ge=-1, le=10)
+    yaw_deg: float = Field(default=0, ge=-180, le=180)
+
+
+class RotatingZone(Model):
+    """An additional MRF zone. The legacy `rotation` block remains the zone named 'rotor'."""
+    name: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,30}$")
+    kind: Literal["propeller", "fan", "rim"] = "propeller"
+    origin: Vec3 = (0, 0, 0)
+    axis: Vec3 = (1, 0, 0)
+    rpm: float = Field(ge=-100000, le=100000)
+    radius: float = Field(gt=0)
+    length: float = Field(gt=0)
+    blade_radius: float = Field(gt=0)
+    patches: list[str] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def valid_zone(self):
+        self.axis = unit_vector(self.axis, "Rotating zone axis must be nonzero")
+        if self.name == "rotor":
+            raise ValueError("Zone name 'rotor' is reserved for the primary rotating region")
+        if self.rpm == 0:
+            raise ValueError("Rotating zones need a nonzero RPM")
+        if self.radius <= self.blade_radius:
+            raise ValueError("Rotating zone must extend beyond the blade tips")
+        return self
+
+
+class Wheel(Model):
+    name: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,30}$")
+    patches: list[str] = Field(min_length=1)
+    center: Vec3
+    axis: Vec3
+    radius: float = Field(gt=0)
+    rotating: bool = True
+
+    @model_validator(mode="after")
+    def valid_axis(self):
+        self.axis = unit_vector(self.axis, "Wheel axis must be nonzero")
+        return self
+
+
+class PorousZone(Model):
+    """Heat-exchanger-like resistance from two measured (velocity m/s, pressure drop Pa) points."""
+    name: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,30}$")
+    center: Vec3
+    axis: Vec3 = (1, 0, 0)
+    up: Vec3 = (0, 0, 1)
+    width_m: float = Field(gt=0)
+    height_m: float = Field(gt=0)
+    thickness_m: float = Field(gt=0)
+    curve: tuple[tuple[float, float], tuple[float, float]]
+    # Sideways resistance as a multiple of the through-flow one. explicitPorositySource puts the
+    # tensor trace on the matrix diagonal, so large factors slow convergence (1000 needed thousands
+    # of iterations on the v2606 smoke case; 10 converges in a few hundred and still channels the flow).
+    transverse_factor: float = Field(default=10, ge=2, le=1e6)
+
+    @model_validator(mode="after")
+    def valid_zone(self):
+        self.axis = unit_vector(self.axis, "Porous flow axis must be nonzero")
+        up = unit_vector(self.up, "Porous up vector must be nonzero")
+        if abs(sum(a*b for a, b in zip(self.axis, up))) > 0.99:
+            raise ValueError("Porous up vector must not be parallel to the flow axis")
+        (v1, p1), (v2, p2) = self.curve
+        if not 0 < v1 < v2 or not 0 < p1 < p2:
+            raise ValueError("Porous curve needs two points with increasing positive velocity and pressure drop")
+        return self
+
+
+class Opening(Model):
+    patch: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,80}$")
+    kind: Literal["inflow_velocity", "inflow_flow_rate", "total_pressure", "outflow_flow_rate", "outflow_pressure"]
+    value: float
+
+
+class DesignBox(Model):
+    name: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,30}$")
+    center: Vec3
+    dimensions: Vec3
+    control_points: tuple[int, int, int] = (6, 4, 4)
+    free_axes: tuple[bool, bool, bool] = (True, True, True)
+    max_displacement_m: float = Field(gt=0)
+
+    @model_validator(mode="after")
+    def valid_box(self):
+        if min(self.dimensions) <= 0:
+            raise ValueError("Design box dimensions must be positive")
+        if not all(3 <= n <= 20 for n in self.control_points):
+            raise ValueError("Design boxes need 3-20 control points per direction")
+        if not any(self.free_axes):
+            raise ValueError("Free at least one design-box displacement direction")
+        return self
+
+
+class Elements(Model):
+    rotating_zones: list[RotatingZone] = Field(default_factory=list)
+    wheels: list[Wheel] = Field(default_factory=list)
+    porous: list[PorousZone] = Field(default_factory=list)
+    openings: list[Opening] = Field(default_factory=list)
+    design_boxes: list[DesignBox] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def unique_names(self):
+        names = [z.name for z in self.rotating_zones] + [w.name for w in self.wheels] + [p.name for p in self.porous] + [b.name for b in self.design_boxes]
+        if len(set(names)) != len(names):
+            raise ValueError("Element names must be unique")
+        if len({o.patch for o in self.openings}) != len(self.openings):
+            raise ValueError("Each opening surface can be configured once")
+        return self
+
+
+class Convergence(Model):
+    """Force-history convergence detection and averaging (a stop condition when enabled).
+
+    `tolerance` bounds the fitted change of each normalised load across the last third of the
+    history (0.01 = 1 %); `averaging_tolerance` bounds the difference between the full and the
+    first-half running mean of the averaging window."""
+    enabled: bool = False
+    min_iterations: int = Field(default=200, ge=20, le=100000)
+    check_every: int = Field(default=10, ge=1, le=1000)
+    tolerance: float = Field(default=0.01, gt=0, le=1)
+    averaging_tolerance: float = Field(default=0.005, gt=0, le=1)
+    averaging_min: int = Field(default=200, ge=10, le=100000)
+    averaging_max: int = Field(default=2000, ge=10, le=100000)
+    cap: int = Field(default=6000, ge=50, le=100000)
+    stability_factor: float = Field(default=2.0, gt=0, le=100)
+    monitor: Literal["auto", "drag", "lift", "thrust", "torque", "pressure_drop"] = "auto"
+
+    @model_validator(mode="after")
+    def ordered(self):
+        if self.averaging_min > self.averaging_max:
+            raise ValueError("Minimum averaging length exceeds the maximum")
+        return self
+
+
+class TimeControl(Model):
+    mode: Literal["steady", "transient"] = "steady"
+    duration_s: float | None = Field(default=None, gt=0)
+    flow_throughs: float = Field(default=8, gt=0, le=100)
+    max_courant: float = Field(default=2, gt=0, le=50)
+    average_after_fraction: float = Field(default=0.3, ge=0, le=0.9)
+    frames: int = Field(default=60, ge=0, le=300)
+    scale_resolving: bool = False
+    # Transient rotors use a sliding mesh instead of MRF. Steady runs ignore this.
+    sliding_mesh: bool = False
+
+
+class FreeSurface(Model):
+    waterline_z: float
+    water: Fluid = Field(default_factory=lambda: Fluid(name="water", density=998.2, dynamic_viscosity=1.002e-3, speed_of_sound=1482))
+    air: Fluid = Field(default_factory=Fluid)
+    gravity: Vec3 = (0, 0, -9.80665)
+    symmetry_y0: bool = False
+
+
+class DesignAdvice(Model):
+    """Adjoint sensitivity on a finished steady solution, and optional shape morphing.
+
+    Both are experimental. Morphing runs only when design boxes are also set. Neither
+    result is a validated design change."""
+    enabled: bool = False
+    objective: Literal["drag", "lift"] = "drag"
+    iterations: int = Field(default=400, ge=50, le=2000)
+    cycles: int = Field(default=8, ge=1, le=20)
+
+
+class Outputs(Model):
+    sections_per_axis: tuple[int, int, int] = (21, 11, 11)
+    rakes: tuple[int, int] = (7, 7)
+    q_levels: tuple[float, ...] = (10.0, 100.0)
+    noise: bool = True
+    friction_lines: bool = True
+    renders: bool = True
+
+    @model_validator(mode="after")
+    def bounded(self):
+        if not all(0 <= n <= 60 for n in self.sections_per_axis) or not all(0 <= n <= 25 for n in self.rakes):
+            raise ValueError("At most 60 sections per axis and 25 streamline rakes per direction")
+        if not 0 < len(self.q_levels) <= 4 or any(q <= 0 for q in self.q_levels):
+            raise ValueError("Give one to four positive normalized Q-criterion levels")
+        return self
+
+
 class UseCase(Model):
     kind: Literal['pipe', 'aerodynamics', 'propeller']
     version: Literal[1] = 1
@@ -153,7 +381,7 @@ class UseCase(Model):
 
 class SimulationSpec(Model):
     project_id: str | None = Field(default=None, pattern=r'^[a-f0-9]{32}$')
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 1
     name: str = Field(default="Untitled study", min_length=1, max_length=120)
     geometry_id: str = Field(pattern=r"^[a-f0-9]{32}$")
     mode: Literal["external", "internal", "rotor"] = "external"
@@ -167,6 +395,23 @@ class SimulationSpec(Model):
     references: References = Field(default_factory=References)
     regions: list[Primitive] = Field(default_factory=list)
     use_case: UseCase | None = None
+    # v2 additions; defaults reproduce v1 behaviour.
+    environment: Environment = Field(default_factory=Environment)
+    elements: Elements = Field(default_factory=Elements)
+    convergence: Convergence = Field(default_factory=Convergence)
+    time: TimeControl = Field(default_factory=TimeControl)
+    free_surface: FreeSurface | None = None
+    design: DesignAdvice = Field(default_factory=DesignAdvice)
+    outputs: Outputs = Field(default_factory=Outputs)
+
+    def rotating_zones(self):
+        """All MRF zones: the legacy region as 'rotor', then the additional zones."""
+        zones = []
+        if self.rotation.enabled:
+            r = self.rotation
+            zones.append(RotatingZone.model_construct(name="rotor", kind="propeller", origin=r.origin, axis=r.axis, rpm=r.rpm,
+                                                      radius=r.radius, length=r.length, blade_radius=r.blade_radius, patches=list(r.patches)))
+        return zones + list(self.elements.rotating_zones)
 
     @model_validator(mode="after")
     def unique_patches(self):
@@ -177,6 +422,8 @@ class SimulationSpec(Model):
             raise ValueError("Rotor mode requires an enabled MRF region")
         if any(r.role != "refinement" for r in self.regions):
             raise ValueError("Only refinement objects belong in regions; add solids to geometry and configure domain/rotation separately")
+        if self.free_surface is not None and self.mode != "external":
+            raise ValueError("Free-surface simulations use the external domain")
         return self
 
 class Prepare(Model):
@@ -232,6 +479,9 @@ class PresetRequest(Model):
     origin: Vec3 = (0, 0, 0)
     axis: Vec3 = (1, 0, 0)
     rpm: float = 2000
+    tier: Literal['basic', 'regular', 'advanced', 'custom'] = 'custom'
+    ground: Literal['none', 'static', 'moving', 'slip'] = 'none'
+    ride_height_m: float = Field(default=0, ge=0, le=10)
 
 class RotorSuggestion(Model):
     patches: list[str] = Field(min_length=1)
@@ -249,3 +499,49 @@ class Sweep(Model):
     spec: SimulationSpec
     parameter: Literal["speed", "alpha_deg", "rpm", "surface_level"]
     values: list[float] = Field(min_length=1, max_length=30)
+
+
+Mesh.model_rebuild()
+References.model_rebuild()
+SimulationSpec.model_rebuild()
+
+
+StudyPath = Literal["flow.speed", "flow.alpha_deg", "flow.beta_deg", "environment.yaw_deg", "environment.ride_height_m",
+                    "rotation.rpm", "mesh.tier", "geometry_id"]
+
+
+class StudyParameter(Model):
+    path: StudyPath
+    values: list[float | str] = Field(min_length=1, max_length=30)
+
+
+class Variant(Model):
+    label: str = Field(min_length=1, max_length=80)
+    overrides: dict[StudyPath, float | str] = Field(default_factory=dict)
+
+
+class Batch(Model):
+    """Several simulations from one base setup (AirShaper-style batch runs). Only whitelisted
+    paths can vary, so a batch can never write arbitrary configuration."""
+    name: str = Field(min_length=1, max_length=120)
+    base: SimulationSpec
+    kind: Literal["sweep", "grid", "variants"]
+    parameters: list[StudyParameter] = Field(default_factory=list)
+    variants: list[Variant] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    auto_review: bool = True
+    acknowledge_review: bool = False
+
+    @model_validator(mode="after")
+    def shape(self):
+        if self.kind == "variants":
+            if not 1 <= len(self.variants) <= 30:
+                raise ValueError("Give one to thirty variants")
+        elif not self.parameters or (self.kind == "sweep" and len(self.parameters) != 1):
+            raise ValueError("A sweep varies one parameter; a grid varies one or more")
+        count = 1
+        for parameter in self.parameters:
+            count *= len(parameter.values)
+        if count > 30:
+            raise ValueError("A batch is limited to thirty simulations")
+        return self

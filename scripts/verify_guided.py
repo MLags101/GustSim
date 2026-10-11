@@ -62,13 +62,14 @@ for mode in ('pipe-flow','pipe-pressure','propeller','aerodynamics'):
     if internal:assert all(metrics.get(k) is not None for k in ('outlet_mass_flow_kgs','pressure_drop_pa','total_pressure_loss_pa'))
     if mode=='propeller':assert metrics['fluid_torque_nm'] is not None and metrics['efficiency'] is None and run['result']['rotor_load_history']
     if mode=='aerodynamics':assert metrics['drag_n'] is not None and metrics['cd'] is None and run['result']['projected_history']
-    deadline=time.monotonic()+120
+    deadline=time.monotonic()+600
     while time.monotonic()<deadline:
+        expected=request('/runs/'+run['id'])['result'].get('expected_views')
         views=request('/runs/'+run['id']+'/views')
-        if len(views)==2 and all(v['status']=='completed' for v in views):break
+        if expected and len(views)==expected and all(v['status']=='completed' for v in views):break
         assert not any(v['status']=='failed' for v in views),views
         time.sleep(2)
-    assert len(views)==2 and all(v['status']=='completed' for v in views),views
+    assert len(views)==expected and all(v['status']=='completed' for v in views),views
     for view in views:assert len(request('/runs/'+run['id']+'/files/views/'+view['id']+'/surface.vtp',raw=True))>100
     with zipfile.ZipFile(io.BytesIO(request('/runs/'+run['id']+'/export/bundle',raw=True))) as archive:
         manifest=json.loads(archive.read('manifest.json'));assert manifest['quality']['analysis']['kind']==s['use_case']['kind']

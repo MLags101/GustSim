@@ -167,7 +167,7 @@ def test_retried_view_job_remains_visible_in_the_views_listing():
     failed = db.enqueue({'run_id': parent['id'], 'view_id': view_id, 'view': {'kind': 'surface'}},
                         'view', parent_id=parent['id'])
     db.update(failed['id'], status='failed', error='pvbatch died')
-    db.heartbeat(failed['id'])
+    db.heartbeat(failed['id'], lane='post')
     with TestClient(app) as client:
         retried = client.post(f"/api/runs/{failed['id']}/retry").json()
         listing = client.get(f"/api/runs/{parent['id']}/views").json()

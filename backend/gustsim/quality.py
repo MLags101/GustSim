@@ -60,8 +60,36 @@ def rotor_load(row, spec):
     return {'iteration':row['iteration'],'thrust_n':float(force@spec.references.thrust_axis),
             'fluid_torque_nm':fluid_torque,'torque_nm':driving,'shaft_power_w':driving*abs(r.rpm)*math.pi/30}
 
+def solve_log(case):
+    # The robust numerics profile solves in two stages with separate logs.
+    return "\n".join((case/"logs"/name).read_text(errors="replace") for name in ("solve_startup.log","solve.log") if (case/"logs"/name).exists())
+
+
+def convergence_assessment(case,spec,history):
+    """The convergence verdict for a v2 run: the live monitor's record when it ran with early
+    stopping, otherwise a post-hoc assessment of the same force history."""
+    import json
+    path=case/"results"/"convergence.json"
+    if path.exists() and spec.convergence.enabled:
+        try:return json.loads(path.read_text(encoding="utf-8"))
+        except ValueError:pass
+    from .monitor import assess
+    summary=assess(case,spec,history).summary()
+    path.parent.mkdir(parents=True,exist_ok=True)
+    path.write_text(json.dumps(summary,indent=2),encoding="utf-8")
+    return summary
+
+
+def window_mean(rows,key,window):
+    from .convergence import averaged
+    values=[r[key] for r in rows if r.get(key) is not None and all(v is not None for v in np.atleast_1d(r[key]))]
+    iterations=[r["iteration"] for r in rows if r.get(key) is not None and all(v is not None for v in np.atleast_1d(r[key]))]
+    mean,std,basis=averaged(iterations,values,window)
+    return mean,std,basis
+
+
 def analyze(case:Path,spec:SimulationSpec):
-    text=(case/"logs"/"solve.log").read_text(errors="replace") if (case/"logs"/"solve.log").exists() else ""
+    text=solve_log(case)
     residuals=parse_log(text)
     history=force_history(case)
     last={};last_iteration=None
@@ -80,6 +108,18 @@ def analyze(case:Path,spec:SimulationSpec):
         throughput=sum(abs(v) for v in fluxes.values())/2
         if throughput>1e-12:imbalance=abs(sum(fluxes.values()))/throughput
     steady=stability(history,"force")
+    v2=spec.schema_version>=2
+    transient_stats=None
+    if v2 and spec.time.mode=="transient" and (case/"results"/"transient_plan.json").exists():
+        # Loads are averaged over the transient window; the steady stage only initialised the flow.
+        from .transient import analyse
+        transient_stats=analyse(case,spec)
+        start=transient_stats["plan"]["start"]
+        convergence=convergence_assessment(case,spec,[h for h in history if h["iteration"]<=start]) if history else None
+        window=(transient_stats["window"]["start"],transient_stats["window"]["end"]) if transient_stats.get("window") else (start,None)
+    else:
+        convergence=convergence_assessment(case,spec,history) if v2 and history else None
+        window=tuple((convergence.get("averaging") or {}).get(k) for k in ("start","end")) if convergence and convergence.get("averaging") else None
     rotor_history=force_history(case,"rotorLoads") if spec.rotation.enabled else []
     projected_history=[{'iteration':row['iteration'],'drag_n':float(np.asarray(row['force'])@spec.references.drag_axis),'lift_n':float(np.asarray(row['force'])@spec.references.lift_axis)} for row in history]
     rotor_load_history=[value for row in rotor_history if (value:=rotor_load(row,spec)) is not None]
@@ -93,25 +133,64 @@ def analyze(case:Path,spec:SimulationSpec):
     advanced=(case/'logs/mesh_diagnostics.log').read_text(errors='replace') if (case/'logs/mesh_diagnostics.log').exists() else ''
     if 'Failed ' in advanced:
         findings.append({'code':'extended_mesh_diagnostics','status':'review','detail':'Extended geometry diagnostics reported findings (including possible concave cells). Inspect logs/mesh_diagnostics.log; explicit solver mesh-quality limits passed separately.'})
-    res_msg=f"All solved fields meet residual target ({spec.solver.residual_target})" if residual_pass else f"Field residuals remain above target ({spec.solver.residual_target}); increase iterations in solver controls"
-    check("residuals",residual_pass,res_msg)
+    if transient_stats is None:
+        res_msg=f"All solved fields meet residual target ({spec.solver.residual_target})" if residual_pass else f"Field residuals remain above target ({spec.solver.residual_target}); increase iterations in solver controls"
+        check("residuals",residual_pass,res_msg)
     check("mass_balance",imbalance<0.001 if imbalance is not None else None,"Net boundary flux below 0.1% of throughflow")
-    check("load_stability",steady<0.01 if steady is not None else None,"Force variation below 1% over the last 20 iterations")
+    if transient_stats is not None:
+        from .transient import max_courant
+        state=transient_stats.get("state")
+        check("statistical_convergence",state=="converged" if state in ("converged","review","incomplete") else None,transient_stats.get("message",""))
+        log=(case/"logs"/"transient.log").read_text(errors="replace") if (case/"logs"/"transient.log").exists() else ""
+        courant=max_courant(log)
+        limit=transient_stats["plan"]["max_courant"]
+        check("courant",courant<=1.5*limit if courant is not None else None,
+              f"Largest Courant number {courant:.3g} (limit {limit:g}; adaptive time step)" if courant is not None else "No Courant number was logged")
+    elif v2:
+        state=convergence["state"] if convergence else None
+        check("load_convergence",state=="converged" if state else None,
+              convergence["message"] if convergence else "No force history was recorded")
+    else:check("load_stability",steady<0.01 if steady is not None else None,"Force variation below 1% over the last 20 iterations")
     if spec.rotation.enabled:check("torque_stability",torque_steady<0.01 if torque_steady is not None else None,"Torque variation below 1% over the last 20 iterations")
     converged="solution converged" in text.lower()
-    term_msg="SIMPLE residual-control convergence reported" if converged else f"Stopped at iteration limit ({spec.solver.iterations} iter) before residual convergence; increase iterations in solver controls"
-    check("solver_termination",converged,term_msg)
+    stopped_by=((convergence or {}).get("stop") or {}).get("by")
+    termination="residual_control" if converged else stopped_by or "iteration_limit"
+    if transient_stats is not None:
+        termination="transient_complete" if transient_stats.get("state") in ("converged","review") else "transient_incomplete"
+    elif v2:
+        messages={"residual_control":"SIMPLE residual-control convergence reported",
+                  "force_convergence":"Stopped when the monitored loads converged and their average settled; residual convergence is reported separately",
+                  "runaway_stopped":"Stopped because the monitored loads ran away; inspect the setup and mesh",
+                  "iteration_limit":"Stopped at the iteration budget before the convergence criteria were met"}
+        check("solver_termination",termination in ("residual_control","force_convergence"),messages[termination])
+    else:
+        term_msg="SIMPLE residual-control convergence reported" if converged else f"Stopped at iteration limit ({spec.solver.iterations} iter) before residual convergence; increase iterations in solver controls"
+        check("solver_termination",converged,term_msg)
     check("experimental_validation",None,"Template has not yet passed the experimental benchmark release gates")
     metrics={"force_n":None,"moment_nm":None,"drag_n":None,"lift_n":None,"side_force_n":None,"cd":None,"cl":None,"thrust_n":None,"torque_nm":None,"shaft_power_w":None,"efficiency":None,"ct":None,"cq":None,"advance_ratio":None}
     q=0.5*spec.fluid.density*spec.flow.speed**2
+    averaging=None
     if history:
-        force=np.asarray(history[-1]["force"])
+        force=np.asarray(history[-1]["force"]);moment=history[-1]["moment"]
+        if v2:
+            # Reported loads are the mean over the convergence averaging window (else the
+            # last 20% of iterations); the last iteration is kept alongside for reference.
+            mean,std,basis=window_mean(history,"force",window)
+            moment_mean,_,_=window_mean(history,"moment",window)
+            force=np.asarray(mean);moment=moment_mean.tolist() if moment_mean is not None else moment
+            averaging={"basis":basis,"start":window[0] if window else None,"end":window[1] if window else None,
+                       "force_std_n":np.asarray(std).tolist()}
         side=np.cross(spec.references.lift_axis,spec.references.drag_axis)
-        metrics.update(force_n=force.tolist(),moment_nm=history[-1]["moment"],drag_n=float(force@spec.references.drag_axis),lift_n=float(force@spec.references.lift_axis),side_force_n=float(force@side))
+        metrics.update(force_n=force.tolist(),moment_nm=moment,drag_n=float(force@spec.references.drag_axis),lift_n=float(force@spec.references.lift_axis),side_force_n=float(force@side))
         if q>0 and (not spec.use_case or spec.use_case.references_confirmed):
             metrics.update(cd=metrics["drag_n"]/(q*spec.references.area),cl=metrics["lift_n"]/(q*spec.references.area))
     if rotor_load_history and rotor_load_history[-1]['iteration']==rotor_history[-1]['iteration']:
         loads=rotor_load_history[-1];r=spec.rotation
+        if v2:
+            loads=dict(loads)
+            for key in ('thrust_n','torque_nm','fluid_torque_nm'):
+                mean,_,_=window_mean(rotor_load_history,key,window)
+                if mean is not None:loads[key]=float(mean)
         thrust=loads['thrust_n'];torque=loads['torque_nm']
         metrics['fluid_torque_nm']=loads['fluid_torque_nm']
         n=abs(r.rpm)/60;diameter=2*r.blade_radius
@@ -132,8 +211,16 @@ def analyze(case:Path,spec:SimulationSpec):
     for b in spec.boundaries:
         rows=force_history(case,"load_"+b.patch)
         if rows:components[b.patch]=rows[-1]
-    return {"numerical_status":"checks_passed" if numerical else "review_required","validation_status":"experimental_validation_pending",
-            "termination":"converged" if converged else "iteration_limit_or_unconfirmed", "findings":findings,"metrics":metrics,
+    last_iteration=None
+    if v2 and history:
+        f=np.asarray(history[-1]["force"])
+        last_iteration={"iteration":history[-1]["iteration"],"force_n":f.tolist(),"drag_n":float(f@spec.references.drag_axis),"lift_n":float(f@spec.references.lift_axis)}
+    v2_fields={"convergence":convergence,"averaging":averaging,"metrics_last_iteration":last_iteration} if v2 else {}
+    if transient_stats is not None:
+        v2_fields["transient"]={k:transient_stats.get(k) for k in ("state","message","strouhal","dominant_frequency_hz","periods_in_window","window","duration_reached_s")}
+        v2_fields["transient"]["coefficients"]={k:(transient_stats.get("statistics") or {}).get(k) for k in ("cd","cl","cs")}
+    return {**v2_fields,"numerical_status":"checks_passed" if numerical else "review_required","validation_status":"experimental_validation_pending",
+            "termination":(termination if v2 else "converged" if converged else "iteration_limit_or_unconfirmed"), "findings":findings,"metrics":metrics,
             "residuals":residuals,"history":history,"rotor_history":rotor_history,"components":components,
             'projected_history':projected_history,'rotor_load_history':rotor_load_history,
             "mass_imbalance":imbalance,"force_variation":steady,"boundary_flux_m3s":fluxes,"boundary_pressure_pa":pressures,

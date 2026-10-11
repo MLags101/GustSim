@@ -169,6 +169,23 @@ def save(mesh, groups, names, filename, parent=None, operations=None, source=Non
     (folder / "metadata.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     return db.save_geometry(meta)
 
+def adopt_surface(parent_id, filename, content, fidelity, operation):
+    """Store an STL that is already in metres as a child revision (a morphed surface).
+
+    The parent revision is not modified. `fidelity` is recorded on the new revision and follows
+    every later run, the same way a wrapped revision does."""
+    try:
+        mesh = trimesh.load(io.BytesIO(content), file_type="stl", force="mesh", process=True)
+    except Exception as e:
+        raise ValueError("Cannot read the morphed surface: " + str(e)) from e
+    if not len(mesh.faces):
+        raise ValueError("The morphed surface has no triangles")
+    groups = connected_groups(mesh)
+    return save(mesh, groups, {int(g): f"surface_{g}" for g in np.unique(groups)}, filename,
+                parent=parent_id, operations=[operation], source=content, confirmed=True,
+                extra={"geometry_fidelity": fidelity})
+
+
 def import_stl(filename, content, units):
     try:
         mesh = trimesh.load(io.BytesIO(content), file_type="stl", force="mesh", process=True)
@@ -179,9 +196,100 @@ def import_stl(filename, content, units):
     return save(mesh, groups, {int(g): f"surface_{g}" for g in np.unique(groups)}, filename,
                 operations=[{"import_units": units}], source=content, confirmed=True)
 
-def import_step(filename, content):
+IMPORT_SUFFIXES = {".stl": "stl", ".obj": "obj", ".gltf": "gltf", ".glb": "glb", ".step": "step", ".stp": "step", ".iges": "iges", ".igs": "iges"}
+
+
+def import_file(filename, content, units="mm", deflection="auto"):
+    """Import any supported CAD or mesh format into an immutable revision."""
+    kind = IMPORT_SUFFIXES.get(Path(filename).suffix.lower())
+    if kind is None:
+        raise ValueError("Supported formats: STEP, IGES, STL, OBJ and glTF/GLB")
+    if kind == "stl":
+        return import_stl(filename, content, units)
+    if kind in ("obj", "gltf", "glb"):
+        return import_scene(filename, content, units, kind)
+    return import_step(filename, content, deflection=deflection, reader=kind)
+
+
+def import_scene(filename, content, units, file_type):
+    """OBJ and glTF scenes: each scene node becomes a component, like a STEP instance, so
+    part selection, wheel detection and per-part forces work the same way."""
+    try:
+        scene = trimesh.load(io.BytesIO(content), file_type=file_type, force="scene", process=True)
+    except Exception as e:
+        raise ValueError(f"Cannot read {file_type.upper()}: {e}") from e
+    scale = UNITS[units]
+    meshes, groups, names, parts = [], [], {}, []
+    group = 0
+    for index, node in enumerate(sorted(scene.graph.nodes_geometry)):
+        transform, geometry_name = scene.graph[node]
+        source = scene.geometry.get(geometry_name)
+        if not isinstance(source, trimesh.Trimesh) or not len(source.faces):
+            continue
+        part = source.copy()
+        part.apply_transform(transform)
+        part.apply_scale(scale)
+        instance = "component_" + hashlib.sha256(f"{index}:{node}".encode()).hexdigest()[:16]
+        local = connected_groups(part)
+        patches = []
+        for g in np.unique(local):
+            names[group + int(g)] = f"{instance}_surface_{int(g)}"
+            patches.append(names[group + int(g)])
+        meshes.append(part)
+        groups.extend((local + group).tolist())
+        group += int(local.max()) + 1
+        placement = (np.asarray(transform, dtype=float)[:3]).tolist()
+        for row in placement:
+            row[3] *= scale
+        parts.append({"id": instance, "parent_id": None, "name": str(node), "patches": patches,
+                      "assembly_path": [index + 1], "placement": placement})
+    if not meshes:
+        raise ValueError(f"{file_type.upper()} contains no triangle meshes")
+    mesh = trimesh.util.concatenate(meshes)
+    return save(mesh, np.asarray(groups), names, filename, source=content, confirmed=True,
+                operations=[{"import": file_type.upper(), "import_units": units}],
+                extra={"parts": parts, "component_schema_version": 1})
+
+
+def tessellation_deflection(shape, setting="auto"):
+    """Linear deflection in millimetres. 'auto' scales with the part: 0.1% of its bounding
+    diagonal, clamped to 0.05-2 mm, so a bolt is not faceted and a car is not oversampled."""
+    if setting != "auto":
+        return float(setting)
+    from OCP.Bnd import Bnd_Box
+    from OCP.BRepBndLib import BRepBndLib
+    box = Bnd_Box()
+    BRepBndLib.Add_s(shape, box)
+    if box.IsVoid():
+        return 0.25
+    diagonal = math.sqrt(box.SquareExtent())
+    return float(min(max(1e-3 * diagonal, 0.05), 2.0))
+
+
+def export_revision(identifier, fmt):
+    """The exact triangulated geometry of a revision, for download (SI metres)."""
+    if fmt not in ("stl", "obj", "glb"):
+        raise ValueError("Export formats: stl, obj, glb")
+    meta = db.geometry(identifier)
+    mesh, groups = load(identifier)
+    target = config.DATA / "exports" / f"geometry-{identifier}.{fmt}"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if fmt == "glb":
+        scene = trimesh.Scene()
+        for patch in meta["patches"]:
+            part = mesh.submesh([np.flatnonzero(groups == patch["group"])], append=True)
+            scene.add_geometry(part, node_name=patch["name"], geom_name=patch["name"])
+        data = scene.export(file_type="glb")
+    else:
+        data = mesh.export(file_type=fmt)
+    target.write_bytes(data if isinstance(data, bytes) else data.encode())
+    return target
+
+
+def import_step(filename, content, deflection="auto", reader="step"):
     try:
         from OCP.STEPCAFControl import STEPCAFControl_Reader
+        from OCP.IGESCAFControl import IGESCAFControl_Reader
         from OCP.TDocStd import TDocStd_Document
         from OCP.TCollection import TCollection_ExtendedString
         from OCP.XCAFDoc import XCAFDoc_DocumentTool
@@ -197,17 +305,19 @@ def import_step(filename, content):
         from OCP.Interface import Interface_Static
         from OCP.TDataStd import TDataStd_Name
     except ImportError as e:
-        raise ValueError("STEP import requires the CAD extra: pip install '.[cad]'") from e
+        raise ValueError("STEP and IGES import require the CAD extra: pip install '.[cad]'") from e
     import tempfile
+    label_kind = "IGES" if reader == "iges" else "STEP"
+    deflections = []
     with tempfile.TemporaryDirectory() as tmp:
-        path = Path(tmp) / "source.step"
+        path = Path(tmp) / ("source.igs" if reader == "iges" else "source.step")
         path.write_bytes(content)
-        reader = STEPCAFControl_Reader()
+        reader = IGESCAFControl_Reader() if reader == "iges" else STEPCAFControl_Reader()
         # OCCT exchange target is explicitly millimetres; normalize to metres below.
         Interface_Static.SetCVal_s("xstep.cascade.unit", "MM")
         doc = TDocStd_Document(TCollection_ExtendedString("GustSim"))
         if reader.ReadFile(str(path)) != IFSelect_RetDone or not reader.Transfer(doc):
-            raise ValueError("Open CASCADE could not transfer this STEP file")
+            raise ValueError(f"Open CASCADE could not transfer this {label_kind} file")
         tool = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
         labels = TDF_LabelSequence()
         tool.GetFreeShapes(labels)
@@ -246,7 +356,9 @@ def import_step(filename, content):
                 return
             shape = tool.GetShape_s(definition).Located(TopLoc_Location())
             validity.append(bool(BRepCheck_Analyzer(shape).IsValid()))
-            BRepMesh_IncrementalMesh(shape, 0.25, False, 0.35, True).Perform()
+            linear = tessellation_deflection(shape, deflection)
+            deflections.append(linear)
+            BRepMesh_IncrementalMesh(shape, linear, False, 0.35, True).Perform()
             explorer = TopExp_Explorer(shape, TopAbs_FACE)
             vertices, faces, groups = [], [], []
             part_patches = []
@@ -277,11 +389,12 @@ def import_step(filename, content):
                 component_groups.extend(groups)
         for i in range(1, labels.Length()+1):
             visit(labels.Value(i), None, [i], TopLoc_Location())
-        if not component_meshes: raise ValueError('STEP contains no triangulatable component bodies')
+        if not component_meshes: raise ValueError(f'{label_kind} contains no triangulatable component bodies')
         mesh = trimesh.util.concatenate(component_meshes)
         groups = component_groups
         return save(mesh, groups, names, filename, source=content, confirmed=True,
-                    operations=[{"import": "STEP", "target_units": "m"}],
+                    operations=[{"import": label_kind, "target_units": "m",
+                                 "linear_deflection_mm": [min(deflections), max(deflections)] if deflections else None}],
                     extra={"parts": parts, "cad_valid": all(validity), 'component_schema_version': 1})
 
 def cap(mesh, indices):

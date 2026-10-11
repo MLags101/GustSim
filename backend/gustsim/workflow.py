@@ -4,25 +4,109 @@ import json
 from .models import SimulationSpec
 
 
-def identity(spec):
-    data = SimulationSpec.model_validate(spec).model_dump(mode='json') if isinstance(spec, dict) else spec.model_dump(mode='json')
-    for key in ('name', 'solver', 'project_id'): data.pop(key, None)
+def canonical(value):
     # JavaScript JSON drops the sign of zero. It does not change the physics.
-    def canonical(value):
-        if isinstance(value,dict):return {k:canonical(v) for k,v in value.items()}
-        if isinstance(value,list):return [canonical(v) for v in value]
-        return 0.0 if isinstance(value,float) and value==0 else value
+    if isinstance(value,dict):return {k:canonical(v) for k,v in value.items()}
+    if isinstance(value,list):return [canonical(v) for v in value]
+    return 0.0 if isinstance(value,float) and value==0 else value
+
+
+def digest(data):
     return hashlib.sha256(json.dumps(canonical(data), sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def dumped(spec):
+    return SimulationSpec.model_validate(spec).model_dump(mode='json') if isinstance(spec, dict) else spec.model_dump(mode='json')
+
+
+_DEFAULTS = None
+# Fields added in spec v2. They enter the identity only when they differ from the default,
+# so every configuration identity (and every recorded mesh review) from before v2 is unchanged.
+V2_PATHS = (('environment',), ('elements',), ('time',), ('free_surface',), ('design',), ('references','object_forward'),
+            ('references','object_up'), ('references','front_axle'), ('references','rear_axle'), ('references','force_groups'),
+            ('mesh','quality_profile'), ('mesh','n_cells_between_levels'), ('mesh','nested_wake_boxes'),
+            ('mesh','wake_length_factor'), ('mesh','wake_level_offset'), ('mesh','adaptive_cycles'), ('mesh','adaptive_source'))
+# Run control and requested outputs do not change the configuration being simulated;
+# `tier` is resolved into the numeric mesh fields, and parallel meshing is an execution choice.
+RUN_CONTROL = (('convergence',), ('outputs',), ('mesh','tier'), ('mesh','parallel'), ('time','frames'))
+
+
+def _defaults():
+    global _DEFAULTS
+    if _DEFAULTS is None:
+        _DEFAULTS = SimulationSpec(geometry_id='0'*32).model_dump(mode='json')
+        for path in RUN_CONTROL: _drop(_DEFAULTS, path)
+    return _DEFAULTS
+
+
+def _lookup(data, path):
+    for key in path:
+        if not isinstance(data, dict) or key not in data: return None, False
+        data = data[key]
+    return data, True
+
+
+def _drop(data, path):
+    for key in path[:-1]:
+        data = data.get(key) if isinstance(data, dict) else None
+    if isinstance(data, dict): data.pop(path[-1], None)
+
+
+def identity(spec):
+    data = dumped(spec)
+    for key in ('name', 'solver', 'project_id'): data.pop(key, None)
+    for path in RUN_CONTROL: _drop(data, path)
+    defaults = _defaults()
+    for path in V2_PATHS:
+        value, present = _lookup(data, path)
+        default, _ = _lookup(defaults, path)
+        if present and canonical(value) == canonical(default): _drop(data, path)
+    return digest(data)
+
+
+def mesh_identity(spec):
+    """What the volume mesh depends on: geometry, domain, mesh controls, refinement shapes and
+    wall/patch typing. Speed, RPM, fluid and turbulence model are excluded, so a reviewed mesh
+    can be reused across those variants. The wake box follows the flow direction and the
+    reference length, so those are included for external flow."""
+    s = SimulationSpec.model_validate(spec) if isinstance(spec, dict) else spec
+    from .foam_elements import effective_boundaries
+    def kind_class(b):
+        return 'symmetry' if b.kind == 'symmetry' else 'wall' if b.kind in ('wall','moving_wall','rotating_wall') else 'patch'
+    mesh = s.mesh.model_dump(mode='json'); mesh.pop('tier', None); mesh.pop('parallel', None)
+    import math
+    velocity = s.flow.velocity(); norm = math.sqrt(sum(v*v for v in velocity))
+    zones = [{'name': z.name, 'origin': list(z.origin), 'axis': list(z.axis), 'radius': z.radius, 'length': z.length}
+             for z in s.rotating_zones()]
+    data = {'geometry_id': s.geometry_id, 'mode': s.mode, 'domain': s.domain.model_dump(mode='json'), 'mesh': mesh,
+            'regions': [r.model_dump(mode='json') for r in s.regions],
+            'patches': sorted((b.patch, kind_class(b)) for b in effective_boundaries(s)),
+            'zones': zones,
+            'porous': [p.model_dump(mode='json', include={'name','center','axis','up','width_m','height_m','thickness_m'}) for p in s.elements.porous],
+            'ground': s.environment.model_dump(mode='json', include={'ride_height_m','yaw_deg'}),
+            'free_surface': s.free_surface.waterline_z if s.free_surface else None}
+    if s.mode != 'internal':
+        data['wake'] = {'direction': [round(v/norm, 9) for v in velocity] if norm > 0 else [0, 0, 0],
+                        'length': s.references.length}
+    return digest(data)
 
 
 def compatible(source, spec):
     return identity(source) == identity(spec)
 
 
+def mesh_compatible(source, spec):
+    """v2 configurations may reuse a mesh across physics-only changes; v1 keeps the strict rule."""
+    target = SimulationSpec.model_validate(spec) if isinstance(spec, dict) else spec
+    if target.schema_version >= 2:
+        return mesh_identity(source) == mesh_identity(target)
+    return compatible(source, spec)
+
+
 def require_mesh(source, spec):
     if source['kind'] != 'mesh' or source['status'] != 'completed':
         raise ValueError('Select a completed mesh attempt')
-    if not compatible(source['spec'], spec):
+    if not mesh_compatible(source['spec'], spec):
         raise ValueError('Geometry or physics changed after meshing; generate and review a new mesh')
     if source['result'].get('mesh_check') != 'passed':
         raise ValueError('This mesh has no passing quality evidence; generate and check a new mesh')
@@ -148,11 +232,14 @@ def mesh_evidence(case, spec, boundary_ok, preview_ok, rotation_ok):
     extended = (case/'logs/mesh_diagnostics.log').read_text(errors='replace') if (case/'logs/mesh_diagnostics.log').exists() else ''
     meshing = (case/'logs/meshing.log').read_text(errors='replace') if (case/'logs/meshing.log').exists() else ''
     cells = re.search(r'\bcells:\s+(\d+)', primary)
+    from .foam_elements import needs_toposet
+    zoned = needs_toposet(spec)
     findings = [
         {'code':'mesh_quality', 'status':'pass' if 'Mesh OK.' in primary else 'fail', 'detail':'Explicit OpenFOAM mesh-quality limits', 'log':'logs/check.log'},
         {'code':'mesh_boundaries', 'status':'pass' if boundary_ok else 'fail', 'detail':'Every configured boundary is present and has faces'},
         {'code':'mesh_preview', 'status':'pass' if preview_ok else 'unavailable', 'detail':'Section of actual volume cells; preview failure does not imply mesh-quality failure'},
-        {'code':'mesh_rotation', 'status':('pass' if rotation_ok else 'fail') if spec.rotation.enabled else 'info', 'detail':'Nonempty rotor cell zone' if spec.rotation.enabled else 'No rotating region requested'},
+        {'code':'mesh_rotation', 'status':('pass' if rotation_ok else 'fail') if zoned else 'info',
+         'detail':('Nonempty rotor cell zone' if spec.rotation.enabled and not (spec.elements.rotating_zones or spec.elements.porous) else 'Every rotating and porous zone has cells') if zoned else 'No rotating region requested'},
         {'code':'mesh_extended', 'status':'review' if 'Failed ' in extended else 'pass' if 'Mesh OK.' in extended else 'unavailable', 'detail':'Extended topology and geometry diagnostics', 'log':'logs/mesh_diagnostics.log'},
     ]
     coverage = layer_coverage(meshing)

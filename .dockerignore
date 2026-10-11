@@ -3,6 +3,7 @@ node_modules
 .pnpm-store
 data
 dist
+dist-share
 .git
 __pycache__
 .pytest_cache

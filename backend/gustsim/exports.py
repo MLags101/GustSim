@@ -79,6 +79,20 @@ def export_run(run,kind):
         path=result/{'png':'view.png','vtk':'volume.vtu','paraview':'view.pvsm'}[kind]
         if not path.exists():raise ValueError('This result artifact has not been generated')
         return path
+    if kind=='pdf':
+        path=result/'report.pdf'
+        if not path.exists():raise ValueError('The PDF report has not been generated yet')
+        return path
+    if kind=='package':
+        if not (result/'package/manifest.json').exists():raise ValueError('The results package has not been generated yet')
+        target=out/(run['id']+'-package.zip');tmp=target.with_suffix('.'+os.urandom(4).hex()+'.tmp')
+        with zipfile.ZipFile(tmp,'w',zipfile.ZIP_DEFLATED,allowZip64=True) as z:
+            for path in (result/'package').rglob('*'):
+                if path.is_file():z.write(path,'package/'+path.relative_to(result/'package').as_posix())
+            for name in ('forces.json','convergence.json','insights.json','elements.json'):
+                if (result/name).exists():z.write(result/name,name)
+            z.writestr('manifest_run.json',json.dumps(manifest(run),indent=2))
+        tmp.replace(target);return target
     if kind=='report':
         target=out/(run['id']+'-report.html');target.write_text(report_html(run),encoding='utf-8');return target
     if kind=='csv':

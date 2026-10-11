@@ -113,7 +113,9 @@ def default_views(spec):
 
 def queue_default_views(identifier,spec):
     # Deterministic identifiers + a single transaction prevent duplicate jobs on recovery.
-    for index,view in enumerate(default_views(spec)):
+    views=default_views(spec)
+    db.merge_result(identifier,{'expected_views':len(views)})
+    for index,view in enumerate(views):
         # v2: the default set changed, so the per-index identity must change with it or a
         # re-queued run would collide with a previous run's view at the same index.
         view_id=hashlib.sha256(f'{identifier}:default:{index}:v2'.encode()).hexdigest()[:32]
@@ -123,5 +125,5 @@ def queue_default_views(identifier,spec):
         with db.connection() as c:
             if c.execute('SELECT 1 FROM views WHERE id=?',(view_id,)).fetchone(): continue
             c.execute('INSERT INTO views VALUES(?,?,?,?)',(view_id,identifier,now,view.model_dump_json()))
-            c.execute('INSERT INTO runs(id,created,updated,status,stage,kind,spec,parent_id) VALUES(?,?,?,?,?,?,?,?)',(job_id,now,now,'queued','queued','view',json.dumps(payload),identifier))
+            c.execute('INSERT INTO runs(id,created,updated,status,stage,kind,spec,parent_id,lane) VALUES(?,?,?,?,?,?,?,?,?)',(job_id,now,now,'queued','queued','view',json.dumps(payload),identifier,'post'))
         db.event(job_id,{'stage':'queued','message':'Automatic '+view.kind+' view queued'})

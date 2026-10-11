@@ -1,0 +1,168 @@
+@import "tailwindcss";
+@import "uplot/dist/uPlot.min.css";
+
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+/* Brand and fixed palette (same in both themes). */
+@theme {
+  --font-sans: "Figtree Variable", "Figtree", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Consolas, monospace;
+  --color-brand: #02bbef;
+  --color-brand-2: #02dcea;
+  --color-indigo-brand: #4053c5;
+  --color-indigo-deep: #1d27b9;
+  --color-coral: #fc7253;
+  --color-axis-x: #ef4444;
+  --color-axis-y: #22c55e;
+  --color-axis-z: #3b82f6;
+  --radius-card: 0.875rem;
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.06), 0 1px 1px rgb(15 23 42 / 0.03);
+  --shadow-pop: 0 10px 30px -10px rgb(15 23 42 / 0.25), 0 2px 6px rgb(15 23 42 / 0.08);
+}
+
+/* Semantic tokens: light is the default, dark under [data-theme=dark]. */
+:root {
+  color-scheme: light;
+  --bg: #f4f7fa;
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --surface-3: #eef3f7;
+  --line: #e2e8f0;
+  --line-strong: #cbd5e1;
+  --ink: #0f172a;
+  --ink-2: #334155;
+  --muted: #64748b;
+  --accent: #0ea5e9;
+  --accent-ink: #0369a1;
+  --accent-soft: #e0f2fe;
+  --success: #16a34a;
+  --success-soft: #dcfce7;
+  --warning: #b45309;
+  --warning-soft: #fef3c7;
+  --danger: #dc2626;
+  --danger-soft: #fee2e2;
+  --experimental: #7c3aed;
+  --experimental-soft: #ede9fe;
+  --viewer-top: #eef2f7;
+  --viewer-bottom: #f9fbfd;
+  --viewer-dot: rgb(15 23 42 / 0.07);
+  --model-neutral: #b8c4cf;
+  --model-selected: #02bbef;
+  --model-rotor: #fc7253;
+  --hero-from: #0b2240;
+  --hero-to: #083344;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0b1120;
+  --surface: #0f172a;
+  --surface-2: #131c31;
+  --surface-3: #1e293b;
+  --line: #233047;
+  --line-strong: #334155;
+  --ink: #e2e8f0;
+  --ink-2: #cbd5e1;
+  --muted: #94a3b8;
+  --accent: #38bdf8;
+  --accent-ink: #7dd3fc;
+  --accent-soft: rgb(56 189 248 / 0.14);
+  --success: #4ade80;
+  --success-soft: rgb(74 222 128 / 0.14);
+  --warning: #fbbf24;
+  --warning-soft: rgb(251 191 36 / 0.14);
+  --danger: #f87171;
+  --danger-soft: rgb(248 113 113 / 0.14);
+  --experimental: #a78bfa;
+  --experimental-soft: rgb(167 139 250 / 0.16);
+  --viewer-top: #0c1527;
+  --viewer-bottom: #111c33;
+  --viewer-dot: rgb(148 163 184 / 0.09);
+  --model-neutral: #8b9bb0;
+  --model-selected: #22d3ee;
+  --model-rotor: #fb923c;
+  --hero-from: #0b1a33;
+  --hero-to: #062f3a;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-experimental: var(--experimental);
+  --color-experimental-soft: var(--experimental-soft);
+}
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body {
+    @apply bg-bg text-ink font-sans antialiased;
+    font-feature-settings: "tnum" 1;
+  }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  ::selection { background: var(--accent-soft); }
+  h1, h2, h3 { @apply text-ink tracking-tight; }
+  input, select, textarea { font: inherit; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+}
+
+@layer components {
+  /* Plain classes composed only from built-in utilities (Tailwind v4 cannot @apply classes).
+     Sizes come last so .btn-sm overrides a variant's padding. */
+  .card { @apply rounded-[var(--radius-card)] border border-line bg-surface shadow-[var(--shadow-card)]; }
+  .card-pad { @apply p-4 sm:p-5; }
+  .eyebrow { @apply text-[11px] font-semibold uppercase tracking-[0.08em] text-muted; }
+  .btn, .btn-primary, .btn-secondary, .btn-ghost, .btn-danger, .btn-icon {
+    @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary { @apply bg-accent-ink text-white hover:brightness-110 dark:bg-accent dark:text-slate-950; }
+  .btn-secondary { @apply border border-line bg-surface text-ink-2 hover:bg-surface-3; }
+  .btn-ghost { @apply text-ink-2 hover:bg-surface-3; }
+  .btn-danger { @apply border border-danger/40 bg-surface text-danger hover:bg-danger-soft; }
+  .btn-icon { @apply px-2 py-2; }
+  .btn-sm { @apply px-2.5 py-1.5 text-xs; }
+  .input { @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/25; }
+  .label { @apply mb-1 block text-xs font-semibold text-ink-2; }
+  .hint { @apply text-xs leading-relaxed text-muted; }
+  .chip { @apply inline-flex items-center gap-1 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-xs font-medium text-ink-2; }
+  .seg { @apply inline-flex flex-wrap rounded-lg border border-line bg-surface-2 p-0.5; }
+  .seg-item { @apply rounded-md border border-transparent px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-ink; }
+  .seg-item[data-active="true"] { @apply border-accent bg-accent-soft text-accent-ink shadow-sm; }
+  .table-clean { @apply w-full text-left text-sm; }
+  .table-clean th { @apply border-b border-line px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted; }
+  .table-clean td { @apply border-b border-line px-3 py-2.5 text-ink-2; }
+  .table-clean tr:last-child td { @apply border-b-0; }
+  .dotted-grid {
+    background-image: radial-gradient(var(--viewer-dot) 1px, transparent 1px), linear-gradient(180deg, var(--viewer-top), var(--viewer-bottom));
+    background-size: 18px 18px, 100% 100%;
+  }
+  .hero { background: linear-gradient(135deg, var(--hero-from), var(--hero-to)); }
+  .scrollbar-thin { scrollbar-width: thin; }
+}
+
+/* driver.js tour, themed with the same tokens. */
+.driver-popover { @apply rounded-xl border border-line bg-surface text-ink shadow-[var(--shadow-pop)]; font-family: var(--font-sans); }
+.driver-popover-title { @apply text-base font-semibold; }
+.driver-popover-description { @apply text-sm text-ink-2; }
+.driver-popover-next-btn { background: var(--accent) !important; color: white !important; text-shadow: none !important; border: 0 !important; }
+
+/* uPlot colours follow the theme. */
+.uplot, .u-legend { font-family: var(--font-sans) !important; color: var(--ink-2); }
+.u-legend .u-marker { border-radius: 2px; }

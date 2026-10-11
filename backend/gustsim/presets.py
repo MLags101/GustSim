@@ -28,6 +28,23 @@ def rotor_suggestion(identifier, request):
             'patches':request.patches, 'stationary_patches':sorted(set(names)-set(request.patches))}
 
 
+def place_ground(spec, bounds, ride_height, length=None):
+    """Put the wind tunnel's bottom face (the ground) under the model at `ride_height`. At zero
+    ride height the model sinks 0.5 % of its height into the ground so contact patches (tyres)
+    form proper cells instead of a zero-thickness line contact. Used by presets and by batches
+    that vary the ride height, so the recorded value always matches the compiled domain."""
+    lo, hi = (np.asarray(b, dtype=float) for b in bounds)
+    height = float(hi[2]-lo[2])
+    length = length or float(max(hi-lo))
+    bottom = lo[2]-ride_height if ride_height > 0 else lo[2]+0.005*height
+    minimum = list(spec.domain.minimum); minimum[2] = bottom
+    maximum = list(spec.domain.maximum); maximum[2] = max(maximum[2], hi[2]+5*height)
+    spec.domain.minimum = tuple(minimum); spec.domain.maximum = tuple(maximum)
+    point = np.asarray(spec.domain.fluid_point, dtype=float); point[2] = bottom+min(0.5*height, length*.25)
+    spec.domain.fluid_point = tuple(point)
+    spec.environment.ride_height_m = ride_height
+
+
 def generate(request):
     meta = db.geometry(request.geometry_id)
     spec = validation.defaults(request.geometry_id)
@@ -94,11 +111,26 @@ def generate(request):
         spec.domain.minimum=tuple(lo-length*3-np.maximum(-direction,0)*length*5)
         spec.domain.maximum=tuple(hi+length*3+np.maximum(direction,0)*length*5)
         spec.domain.fluid_point=tuple(np.asarray(spec.domain.minimum)+length*.5)
+    if request.ground!='none':
+        # The ground is the bottom face of the wind tunnel, below the model by the ride height.
+        # At zero ride height the model sinks 0.5 % of its height into the ground so contact
+        # patches (tyres) form proper cells instead of a zero-thickness line contact.
+        if request.kind!='aerodynamics':raise ValueError('A ground plane applies to objects moving through a fluid')
+        if abs(float(direction[2]))>1e-9 or np.linalg.norm(np.asarray(request.lift_axis,dtype=float)-np.array([0,0,1]))>1e-9:
+            raise ValueError('On the ground, travel must be horizontal and lift must point up (+Z)')
+        place_ground(spec,(lo,hi),request.ride_height_m,length)
+        spec.environment.ground=request.ground
     # Speed, fluid and reference length are all known only now, so size the near-wall
     # layer against the flow the user actually chose rather than the geometry alone.
     spec.mesh.first_layer_m=validation.first_layer_thickness(spec)
     from .mesh_guidance import recommend
     spec.mesh.body_level=recommend(spec,meta)['body_level']
+    # Guided setups are version 2: SIMPLEC numerics, load-convergence monitoring and mesh
+    # reuse across physics-only changes. A tier resolves the mesh and solver settings.
+    spec.schema_version=2
+    if request.tier!='custom':
+        from .mesh_tiers import resolve
+        spec=resolve(spec,request.tier,meta)
     spec = SimulationSpec.model_validate(spec.model_dump())
     return {'spec':spec.model_dump(mode='json'), 'report':validation.validate(spec),
             'review':['Confirm model dimensions in metres', 'Confirm the point lies in the intended fluid volume', 'Confirm reference directions and selected surfaces', 'Mesh presets do not guarantee accuracy']}

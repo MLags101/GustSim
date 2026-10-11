@@ -1,0 +1,20 @@
+/* GustSim · OpenCFD OpenFOAM v2606 */
+FoamFile
+{
+ version 2.0;
+ format ascii;
+ class volVectorField;
+ object U;
+}
+dimensions [0 1 -1 0 0 0 0];
+internalField uniform (0 0 0);
+boundaryField
+{
+inlet { type pressureInletOutletVelocity; value uniform (0 0 0); }
+outlet { type pressureInletOutletVelocity; value uniform (0 0 0); }
+front { type pressureInletOutletVelocity; value uniform (0 0 0); }
+back { type pressureInletOutletVelocity; value uniform (0 0 0); }
+ground { type pressureInletOutletVelocity; value uniform (0 0 0); }
+top { type pressureInletOutletVelocity; value uniform (0 0 0); }
+primitive_0 { type fixedValue; value uniform (0 0 0); }
+}

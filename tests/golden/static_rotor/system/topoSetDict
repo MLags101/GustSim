@@ -1,0 +1,13 @@
+/* GustSim · OpenCFD OpenFOAM v2606 */
+FoamFile
+{
+ version 2.0;
+ format ascii;
+ class dictionary;
+ object topoSetDict;
+}
+actions
+(
+{name rotorCells;type cellSet;action new;source cylinderToCell;point1 (0 0 -0.12);point2 (0 0 0.12);radius 0.11500000000000002;}
+{name rotor;type cellZoneSet;action new;source setToCellZone;set rotorCells;}
+);

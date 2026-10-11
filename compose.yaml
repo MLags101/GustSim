@@ -14,6 +14,23 @@ services:
       interval: 15s
       timeout: 5s
       retries: 3
+  cad:
+    # Durable STEP/IGES/OBJ/glTF import and heavy preparation (Open CASCADE lives in this image).
+    depends_on:
+      api:
+        condition: service_healthy
+    build: .
+    init: true
+    command: ["python", "-m", "gustsim.cadworker"]
+    volumes:
+      - gustsim-data:/data
+    restart: unless-stopped
+    mem_limit: ${GUSTSIM_CAD_MEMORY:-6g}
+    healthcheck:
+      test: ["CMD", "python", "-c", "from gustsim.db import lane_online; import sys; sys.exit(0 if lane_online('cad') else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
   worker:
     depends_on:
       api:
@@ -29,6 +46,10 @@ services:
     shm_size: 1g
     environment:
       GUSTSIM_MEMORY_GB: "${GUSTSIM_MEMORY_GB:-20}"
+      # compute (OpenFOAM) and post (ParaView extraction, reports) lanes run side by side.
+      GUSTSIM_WORKER_LANES: "compute,post"
+      GUSTSIM_POST_CPUS: "${GUSTSIM_POST_CPUS:-1}"
+      GUSTSIM_POST_MEMORY_GB: "${GUSTSIM_POST_MEMORY_GB:-4}"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "from gustsim.db import worker_status; import sys; sys.exit(0 if worker_status()['online'] else 1)"]

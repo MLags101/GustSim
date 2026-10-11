@@ -1,0 +1,5266 @@
+{
+ "components": {
+  "schemas": {
+   "AdaptiveSource": {
+    "additionalProperties": false,
+    "description": "Refinement surface derived from a solved attempt (adaptive mesh refinement).",
+    "properties": {
+     "distance_m": {
+      "exclusiveMinimum": 0.0,
+      "title": "Distance M",
+      "type": "number"
+     },
+     "level": {
+      "default": 1,
+      "maximum": 10.0,
+      "minimum": 1.0,
+      "title": "Level",
+      "type": "integer"
+     },
+     "run_id": {
+      "pattern": "^[a-f0-9]{32}$",
+      "title": "Run Id",
+      "type": "string"
+     },
+     "sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Sha256",
+      "type": "string"
+     }
+    },
+    "required": [
+     "run_id",
+     "sha256",
+     "distance_m"
+    ],
+    "title": "AdaptiveSource",
+    "type": "object"
+   },
+   "Batch": {
+    "additionalProperties": false,
+    "description": "Several simulations from one base setup (AirShaper-style batch runs). Only whitelisted\npaths can vary, so a batch can never write arbitrary configuration.",
+    "properties": {
+     "acknowledge_review": {
+      "default": false,
+      "title": "Acknowledge Review",
+      "type": "boolean"
+     },
+     "auto_review": {
+      "default": true,
+      "title": "Auto Review",
+      "type": "boolean"
+     },
+     "base": {
+      "$ref": "#/components/schemas/SimulationSpec"
+     },
+     "kind": {
+      "enum": [
+       "sweep",
+       "grid",
+       "variants"
+      ],
+      "title": "Kind",
+      "type": "string"
+     },
+     "name": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     },
+     "parameters": {
+      "items": {
+       "$ref": "#/components/schemas/StudyParameter"
+      },
+      "title": "Parameters",
+      "type": "array"
+     },
+     "tags": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Tags",
+      "type": "array"
+     },
+     "variants": {
+      "items": {
+       "$ref": "#/components/schemas/Variant"
+      },
+      "title": "Variants",
+      "type": "array"
+     }
+    },
+    "required": [
+     "name",
+     "base",
+     "kind"
+    ],
+    "title": "Batch",
+    "type": "object"
+   },
+   "Body_import_geometry_api_geometry_import_post": {
+    "properties": {
+     "file": {
+      "contentMediaType": "application/octet-stream",
+      "title": "File",
+      "type": "string"
+     },
+     "units": {
+      "default": "mm",
+      "title": "Units",
+      "type": "string"
+     }
+    },
+    "required": [
+     "file"
+    ],
+    "title": "Body_import_geometry_api_geometry_import_post",
+    "type": "object"
+   },
+   "Body_import_geometry_job_api_geometry_import_jobs_post": {
+    "properties": {
+     "deflection": {
+      "default": "auto",
+      "title": "Deflection",
+      "type": "string"
+     },
+     "file": {
+      "contentMediaType": "application/octet-stream",
+      "title": "File",
+      "type": "string"
+     },
+     "units": {
+      "default": "mm",
+      "title": "Units",
+      "type": "string"
+     }
+    },
+    "required": [
+     "file"
+    ],
+    "title": "Body_import_geometry_job_api_geometry_import_jobs_post",
+    "type": "object"
+   },
+   "Boundary": {
+    "additionalProperties": false,
+    "properties": {
+     "axis": {
+      "default": [
+       1,
+       0,
+       0
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Axis",
+      "type": "array"
+     },
+     "flow_rate": {
+      "default": 0.01,
+      "exclusiveMinimum": 0.0,
+      "title": "Flow Rate",
+      "type": "number"
+     },
+     "kind": {
+      "enum": [
+       "velocity_inlet",
+       "flow_inlet",
+       "pressure_inlet",
+       "pressure_outlet",
+       "flow_outlet",
+       "wall",
+       "moving_wall",
+       "rotating_wall",
+       "slip",
+       "symmetry",
+       "freestream"
+      ],
+      "title": "Kind",
+      "type": "string"
+     },
+     "origin": {
+      "default": [
+       0,
+       0,
+       0
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Origin",
+      "type": "array"
+     },
+     "patch": {
+      "pattern": "^[A-Za-z][A-Za-z0-9_]{0,80}$",
+      "title": "Patch",
+      "type": "string"
+     },
+     "pressure_pa": {
+      "default": 0,
+      "title": "Pressure Pa",
+      "type": "number"
+     },
+     "rpm": {
+      "default": 0,
+      "title": "Rpm",
+      "type": "number"
+     },
+     "velocity": {
+      "anyOf": [
+       {
+        "maxItems": 3,
+        "minItems": 3,
+        "prefixItems": [
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         }
+        ],
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Velocity"
+     }
+    },
+    "required": [
+     "patch",
+     "kind"
+    ],
+    "title": "Boundary",
+    "type": "object"
+   },
+   "Convergence": {
+    "additionalProperties": false,
+    "description": "Force-history convergence detection and averaging (a stop condition when enabled).\n\n`tolerance` bounds the fitted change of each normalised load across the last third of the\nhistory (0.01 = 1 %); `averaging_tolerance` bounds the difference between the full and the\nfirst-half running mean of the averaging window.",
+    "properties": {
+     "averaging_max": {
+      "default": 2000,
+      "maximum": 100000.0,
+      "minimum": 10.0,
+      "title": "Averaging Max",
+      "type": "integer"
+     },
+     "averaging_min": {
+      "default": 200,
+      "maximum": 100000.0,
+      "minimum": 10.0,
+      "title": "Averaging Min",
+      "type": "integer"
+     },
+     "averaging_tolerance": {
+      "default": 0.005,
+      "exclusiveMinimum": 0.0,
+      "maximum": 1.0,
+      "title": "Averaging Tolerance",
+      "type": "number"
+     },
+     "cap": {
+      "default": 6000,
+      "maximum": 100000.0,
+      "minimum": 50.0,
+      "title": "Cap",
+      "type": "integer"
+     },
+     "check_every": {
+      "default": 10,
+      "maximum": 1000.0,
+      "minimum": 1.0,
+      "title": "Check Every",
+      "type": "integer"
+     },
+     "enabled": {
+      "default": false,
+      "title": "Enabled",
+      "type": "boolean"
+     },
+     "min_iterations": {
+      "default": 200,
+      "maximum": 100000.0,
+      "minimum": 20.0,
+      "title": "Min Iterations",
+      "type": "integer"
+     },
+     "monitor": {
+      "default": "auto",
+      "enum": [
+       "auto",
+       "drag",
+       "lift",
+       "thrust",
+       "torque",
+       "pressure_drop"
+      ],
+      "title": "Monitor",
+      "type": "string"
+     },
+     "stability_factor": {
+      "default": 2.0,
+      "exclusiveMinimum": 0.0,
+      "maximum": 100.0,
+      "title": "Stability Factor",
+      "type": "number"
+     },
+     "tolerance": {
+      "default": 0.01,
+      "exclusiveMinimum": 0.0,
+      "maximum": 1.0,
+      "title": "Tolerance",
+      "type": "number"
+     }
+    },
+    "title": "Convergence",
+    "type": "object"
+   },
+   "DesignAdvice": {
+    "additionalProperties": false,
+    "description": "Adjoint sensitivity on a finished steady solution, and optional shape morphing.\n\nBoth are experimental. Morphing runs only when design boxes are also set. Neither\nresult is a validated design change.",
+    "properties": {
+     "cycles": {
+      "default": 8,
+      "maximum": 20.0,
+      "minimum": 1.0,
+      "title": "Cycles",
+      "type": "integer"
+     },
+     "enabled": {
+      "default": false,
+      "title": "Enabled",
+      "type": "boolean"
+     },
+     "iterations": {
+      "default": 400,
+      "maximum": 2000.0,
+      "minimum": 50.0,
+      "title": "Iterations",
+      "type": "integer"
+     },
+     "objective": {
+      "default": "drag",
+      "enum": [
+       "drag",
+       "lift"
+      ],
+      "title": "Objective",
+      "type": "string"
+     }
+    },
+    "title": "DesignAdvice",
+    "type": "object"
+   },
+   "DesignBox": {
+    "additionalProperties": false,
+    "properties": {
+     "center": {
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Center",
+      "type": "array"
+     },
+     "control_points": {
+      "default": [
+       6,
+       4,
+       4
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "integer"
+       },
+       {
+        "type": "integer"
+       }
+      ],
+      "title": "Control Points",
+      "type": "array"
+     },
+     "dimensions": {
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Dimensions",
+      "type": "array"
+     },
+     "free_axes": {
+      "default": [
+       true,
+       true,
+       true
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "boolean"
+       }
+      ],
+      "title": "Free Axes",
+      "type": "array"
+     },
+     "max_displacement_m": {
+      "exclusiveMinimum": 0.0,
+      "title": "Max Displacement M",
+      "type": "number"
+     },
+     "name": {
+      "pattern": "^[A-Za-z][A-Za-z0-9_]{0,30}$",
+      "title": "Name",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name",
+     "center",
+     "dimensions",
+     "max_displacement_m"
+    ],
+    "title": "DesignBox",
+    "type": "object"
+   },
+   "Domain": {
+    "additionalProperties": false,
+    "properties": {
+     "fluid_point": {
+      "default": [
+       -2,
+       0,
+       0
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Fluid Point",
+      "type": "array"
+     },
+     "maximum": {
+      "default": [
+       8,
+       3,
+       3
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Maximum",
+      "type": "array"
+     },
+     "minimum": {
+      "default": [
+       -3,
+       -3,
+       -3
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Minimum",
+      "type": "array"
+     }
+    },
+    "title": "Domain",
+    "type": "object"
+   },
+   "Elements": {
+    "additionalProperties": false,
+    "properties": {
+     "design_boxes": {
+      "items": {
+       "$ref": "#/components/schemas/DesignBox"
+      },
+      "title": "Design Boxes",
+      "type": "array"
+     },
+     "openings": {
+      "items": {
+       "$ref": "#/components/schemas/Opening"
+      },
+      "title": "Openings",
+      "type": "array"
+     },
+     "porous": {
+      "items": {
+       "$ref": "#/components/schemas/PorousZone"
+      },
+      "title": "Porous",
+      "type": "array"
+     },
+     "rotating_zones": {
+      "items": {
+       "$ref": "#/components/schemas/RotatingZone"
+      },
+      "title": "Rotating Zones",
+      "type": "array"
+     },
+     "wheels": {
+      "items": {
+       "$ref": "#/components/schemas/Wheel"
+      },
+      "title": "Wheels",
+      "type": "array"
+     }
+    },
+    "title": "Elements",
+    "type": "object"
+   },
+   "Environment": {
+    "additionalProperties": false,
+    "description": "Ground plane under the model (bottom domain face). 'none' keeps the v1 far field.",
+    "properties": {
+     "ground": {
+      "default": "none",
+      "enum": [
+       "none",
+       "static",
+       "moving",
+       "slip"
+      ],
+      "title": "Ground",
+      "type": "string"
+     },
+     "ride_height_m": {
+      "default": 0,
+      "maximum": 10.0,
+      "minimum": -1.0,
+      "title": "Ride Height M",
+      "type": "number"
+     },
+     "yaw_deg": {
+      "default": 0,
+      "maximum": 180.0,
+      "minimum": -180.0,
+      "title": "Yaw Deg",
+      "type": "number"
+     }
+    },
+    "title": "Environment",
+    "type": "object"
+   },
+   "Flow": {
+    "additionalProperties": false,
+    "properties": {
+     "alpha_deg": {
+      "default": 0,
+      "maximum": 180.0,
+      "minimum": -180.0,
+      "title": "Alpha Deg",
+      "type": "number"
+     },
+     "beta_deg": {
+      "default": 0,
+      "maximum": 90.0,
+      "minimum": -90.0,
+      "title": "Beta Deg",
+      "type": "number"
+     },
+     "intensity": {
+      "default": 0.01,
+      "exclusiveMinimum": 0.0,
+      "maximum": 1.0,
+      "title": "Intensity",
+      "type": "number"
+     },
+     "length_scale": {
+      "default": 0.05,
+      "exclusiveMinimum": 0.0,
+      "title": "Length Scale",
+      "type": "number"
+     },
+     "speed": {
+      "default": 20,
+      "maximum": 2000.0,
+      "minimum": 0.0,
+      "title": "Speed",
+      "type": "number"
+     },
+     "turbulence": {
+      "default": "kOmegaSST",
+      "enum": [
+       "kOmegaSST",
+       "laminar"
+      ],
+      "title": "Turbulence",
+      "type": "string"
+     }
+    },
+    "title": "Flow",
+    "type": "object"
+   },
+   "Fluid": {
+    "additionalProperties": false,
+    "properties": {
+     "density": {
+      "default": 1.204,
+      "exclusiveMinimum": 0.0,
+      "title": "Density",
+      "type": "number"
+     },
+     "dynamic_viscosity": {
+      "default": 1.825e-05,
+      "exclusiveMinimum": 0.0,
+      "title": "Dynamic Viscosity",
+      "type": "number"
+     },
+     "name": {
+      "default": "air",
+      "enum": [
+       "air",
+       "water",
+       "custom"
+      ],
+      "title": "Name",
+      "type": "string"
+     },
+     "reference_pressure_pa": {
+      "default": 101325,
+      "exclusiveMinimum": 0.0,
+      "title": "Reference Pressure Pa",
+      "type": "number"
+     },
+     "speed_of_sound": {
+      "default": 343,
+      "exclusiveMinimum": 0.0,
+      "title": "Speed Of Sound",
+      "type": "number"
+     },
+     "temperature_k": {
+      "default": 293.15,
+      "exclusiveMinimum": 0.0,
+      "title": "Temperature K",
+      "type": "number"
+     },
+     "vapor_pressure_pa": {
+      "default": 2339,
+      "minimum": 0.0,
+      "title": "Vapor Pressure Pa",
+      "type": "number"
+     }
+    },
+    "title": "Fluid",
+    "type": "object"
+   },
+   "ForceGroup": {
+    "additionalProperties": false,
+    "properties": {
+     "name": {
+      "pattern": "^[A-Za-z][A-Za-z0-9_]{0,40}$",
+      "title": "Name",
+      "type": "string"
+     },
+     "patches": {
+      "items": {
+       "type": "string"
+      },
+      "minItems": 1,
+      "title": "Patches",
+      "type": "array"
+     }
+    },
+    "required": [
+     "name",
+     "patches"
+    ],
+    "title": "ForceGroup",
+    "type": "object"
+   },
+   "FreeSurface": {
+    "additionalProperties": false,
+    "properties": {
+     "air": {
+      "$ref": "#/components/schemas/Fluid"
+     },
+     "gravity": {
+      "default": [
+       0,
+       0,
+       -9.80665
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Gravity",
+      "type": "array"
+     },
+     "symmetry_y0": {
+      "default": false,
+      "title": "Symmetry Y0",
+      "type": "boolean"
+     },
+     "water": {
+      "$ref": "#/components/schemas/Fluid"
+     },
+     "waterline_z": {
+      "title": "Waterline Z",
+      "type": "number"
+     }
+    },
+    "required": [
+     "waterline_z"
+    ],
+    "title": "FreeSurface",
+    "type": "object"
+   },
+   "HTTPValidationError": {
+    "properties": {
+     "detail": {
+      "items": {
+       "$ref": "#/components/schemas/ValidationError"
+      },
+      "title": "Detail",
+      "type": "array"
+     }
+    },
+    "title": "HTTPValidationError",
+    "type": "object"
+   },
+   "Mesh": {
+    "additionalProperties": false,
+    "properties": {
+     "adaptive_cycles": {
+      "default": 0,
+      "maximum": 3.0,
+      "minimum": 0.0,
+      "title": "Adaptive Cycles",
+      "type": "integer"
+     },
+     "adaptive_source": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AdaptiveSource"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "base_cells": {
+      "default": 24,
+      "maximum": 200.0,
+      "minimum": 8.0,
+      "title": "Base Cells",
+      "type": "integer"
+     },
+     "body_level": {
+      "default": 0,
+      "maximum": 10.0,
+      "minimum": 0.0,
+      "title": "Body Level",
+      "type": "integer"
+     },
+     "expansion_ratio": {
+      "default": 1.2,
+      "maximum": 2.0,
+      "minimum": 1.0,
+      "title": "Expansion Ratio",
+      "type": "number"
+     },
+     "feature_level": {
+      "default": 3,
+      "maximum": 7.0,
+      "minimum": 1.0,
+      "title": "Feature Level",
+      "type": "integer"
+     },
+     "first_layer_m": {
+      "default": 0.001,
+      "exclusiveMinimum": 0.0,
+      "title": "First Layer M",
+      "type": "number"
+     },
+     "layers": {
+      "default": 3,
+      "maximum": 15.0,
+      "minimum": 0.0,
+      "title": "Layers",
+      "type": "integer"
+     },
+     "max_cells": {
+      "default": 2000000,
+      "maximum": 30000000.0,
+      "minimum": 10000.0,
+      "title": "Max Cells",
+      "type": "integer"
+     },
+     "n_cells_between_levels": {
+      "default": 3,
+      "maximum": 10.0,
+      "minimum": 1.0,
+      "title": "N Cells Between Levels",
+      "type": "integer"
+     },
+     "nested_wake_boxes": {
+      "default": 1,
+      "maximum": 3.0,
+      "minimum": 0.0,
+      "title": "Nested Wake Boxes",
+      "type": "integer"
+     },
+     "parallel": {
+      "default": true,
+      "title": "Parallel",
+      "type": "boolean"
+     },
+     "preset": {
+      "default": "standard",
+      "enum": [
+       "draft",
+       "standard",
+       "refined"
+      ],
+      "title": "Preset",
+      "type": "string"
+     },
+     "quality_profile": {
+      "default": "standard",
+      "enum": [
+       "standard",
+       "relaxed"
+      ],
+      "title": "Quality Profile",
+      "type": "string"
+     },
+     "surface_level": {
+      "default": 2,
+      "maximum": 6.0,
+      "minimum": 1.0,
+      "title": "Surface Level",
+      "type": "integer"
+     },
+     "tier": {
+      "default": "custom",
+      "enum": [
+       "basic",
+       "regular",
+       "advanced",
+       "custom"
+      ],
+      "title": "Tier",
+      "type": "string"
+     },
+     "wake_length_factor": {
+      "default": 5,
+      "maximum": 20.0,
+      "minimum": 1.0,
+      "title": "Wake Length Factor",
+      "type": "number"
+     },
+     "wake_level_offset": {
+      "default": 1,
+      "maximum": 4.0,
+      "minimum": 1.0,
+      "title": "Wake Level Offset",
+      "type": "integer"
+     },
+     "wall_treatment": {
+      "default": "wall_function",
+      "enum": [
+       "wall_function",
+       "resolved"
+      ],
+      "title": "Wall Treatment",
+      "type": "string"
+     }
+    },
+    "title": "Mesh",
+    "type": "object"
+   },
+   "Opening": {
+    "additionalProperties": false,
+    "properties": {
+     "kind": {
+      "enum": [
+       "inflow_velocity",
+       "inflow_flow_rate",
+       "total_pressure",
+       "outflow_flow_rate",
+       "outflow_pressure"
+      ],
+      "title": "Kind",
+      "type": "string"
+     },
+     "patch": {
+      "pattern": "^[A-Za-z][A-Za-z0-9_]{0,80}$",
+      "title": "Patch",
+      "type": "string"
+     },
+     "value": {
+      "title": "Value",
+      "type": "number"
+     }
+    },
+    "required": [
+     "patch",
+     "kind",
+     "value"
+    ],
+    "title": "Opening",
+    "type": "object"
+   },
+   "Outputs": {
+    "additionalProperties": false,
+    "properties": {
+     "friction_lines": {
+      "default": true,
+      "title": "Friction Lines",
+      "type": "boolean"
+     },
+     "noise": {
+      "default": true,
+      "title": "Noise",
+      "type": "boolean"
+     },
+     "q_levels": {
+      "default": [
+       10.0,
+       100.0
+      ],
+      "items": {
+       "type": "number"
+      },
+      "title": "Q Levels",
+      "type": "array"
+     },
+     "rakes": {
+      "default": [
+       7,
+       7
+      ],
+      "maxItems": 2,
+      "minItems": 2,
+      "prefixItems": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "integer"
+       }
+      ],
+      "title": "Rakes",
+      "type": "array"
+     },
+     "renders": {
+      "default": true,
+      "title": "Renders",
+      "type": "boolean"
+     },
+     "sections_per_axis": {
+      "default": [
+       21,
+       11,
+       11
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "integer"
+       },
+       {
+        "type": "integer"
+       }
+      ],
+      "title": "Sections Per Axis",
+      "type": "array"
+     }
+    },
+    "title": "Outputs",
+    "type": "object"
+   },
+   "PorousZone": {
+    "additionalProperties": false,
+    "description": "Heat-exchanger-like resistance from two measured (velocity m/s, pressure drop Pa) points.",
+    "properties": {
+     "axis": {
+      "default": [
+       1,
+       0,
+       0
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Axis",
+      "type": "array"
+     },
+     "center": {
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Center",
+      "type": "array"
+     },
+     "curve": {
+      "maxItems": 2,
+      "minItems": 2,
+      "prefixItems": [
+       {
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         }
+        ],
+        "type": "array"
+       },
+       {
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         }
+        ],
+        "type": "array"
+       }
+      ],
+      "title": "Curve",
+      "type": "array"
+     },
+     "height_m": {
+      "exclusiveMinimum": 0.0,
+      "title": "Height M",
+      "type": "number"
+     },
+     "name": {
+      "pattern": "^[A-Za-z][A-Za-z0-9_]{0,30}$",
+      "title": "Name",
+      "type": "string"
+     },
+     "thickness_m": {
+      "exclusiveMinimum": 0.0,
+      "title": "Thickness M",
+      "type": "number"
+     },
+     "transverse_factor": {
+      "default": 10,
+      "maximum": 1000000.0,
+      "minimum": 2.0,
+      "title": "Transverse Factor",
+      "type": "number"
+     },
+     "up": {
+      "default": [
+       0,
+       0,
+       1
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Up",
+      "type": "array"
+     },
+     "width_m": {
+      "exclusiveMinimum": 0.0,
+      "title": "Width M",
+      "type": "number"
+     }
+    },
+    "required": [
+     "name",
+     "center",
+     "width_m",
+     "height_m",
+     "thickness_m",
+     "curve"
+    ],
+    "title": "PorousZone",
+    "type": "object"
+   },
+   "Prepare": {
+    "additionalProperties": false,
+    "properties": {
+     "cap_loops": {
+      "items": {
+       "type": "integer"
+      },
+      "title": "Cap Loops",
+      "type": "array"
+     },
+     "component_surfaces": {
+      "default": false,
+      "title": "Component Surfaces",
+      "type": "boolean"
+     },
+     "group_angle_deg": {
+      "default": 35,
+      "exclusiveMaximum": 180.0,
+      "exclusiveMinimum": 0.0,
+      "title": "Group Angle Deg",
+      "type": "number"
+     },
+     "keep_patches": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Keep Patches",
+      "type": "array"
+     },
+     "merge_patches": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Merge Patches",
+      "type": "array"
+     },
+     "merged_name": {
+      "default": "selected",
+      "pattern": "^[A-Za-z][A-Za-z0-9_]{0,40}$",
+      "title": "Merged Name",
+      "type": "string"
+     },
+     "repair": {
+      "default": false,
+      "title": "Repair",
+      "type": "boolean"
+     },
+     "rotation_deg": {
+      "default": [
+       0,
+       0,
+       0
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Rotation Deg",
+      "type": "array"
+     },
+     "scale": {
+      "default": 1,
+      "exclusiveMinimum": 0.0,
+      "maximum": 1000000.0,
+      "title": "Scale",
+      "type": "number"
+     },
+     "translation": {
+      "default": [
+       0,
+       0,
+       0
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Translation",
+      "type": "array"
+     },
+     "units": {
+      "default": "m",
+      "enum": [
+       "m",
+       "mm",
+       "cm",
+       "in"
+      ],
+      "title": "Units",
+      "type": "string"
+     },
+     "wrap": {
+      "default": false,
+      "title": "Wrap",
+      "type": "boolean"
+     },
+     "wrap_close_gaps": {
+      "default": 2,
+      "maximum": 64.0,
+      "minimum": 0.0,
+      "title": "Wrap Close Gaps",
+      "type": "integer"
+     },
+     "wrap_resolution": {
+      "default": 256,
+      "maximum": 1024.0,
+      "minimum": 32.0,
+      "title": "Wrap Resolution",
+      "type": "integer"
+     }
+    },
+    "title": "Prepare",
+    "type": "object"
+   },
+   "PresetRequest": {
+    "additionalProperties": false,
+    "properties": {
+     "axis": {
+      "default": [
+       1,
+       0,
+       0
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Axis",
+      "type": "array"
+     },
+     "direction": {
+      "default": [
+       1,
+       0,
+       0
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Direction",
+      "type": "array"
+     },
+     "driving": {
+      "default": "flow",
+      "enum": [
+       "flow",
+       "speed",
+       "pressure"
+      ],
+      "title": "Driving",
+      "type": "string"
+     },
+     "flow_rate": {
+      "default": 0.01,
+      "exclusiveMinimum": 0.0,
+      "title": "Flow Rate",
+      "type": "number"
+     },
+     "fluid": {
+      "default": "air",
+      "enum": [
+       "air",
+       "water"
+      ],
+      "title": "Fluid",
+      "type": "string"
+     },
+     "geometry_id": {
+      "pattern": "^[a-f0-9]{32}$",
+      "title": "Geometry Id",
+      "type": "string"
+     },
+     "ground": {
+      "default": "none",
+      "enum": [
+       "none",
+       "static",
+       "moving",
+       "slip"
+      ],
+      "title": "Ground",
+      "type": "string"
+     },
+     "inlet": {
+      "default": "",
+      "title": "Inlet",
+      "type": "string"
+     },
+     "inlet_pressure_pa": {
+      "default": 100,
+      "title": "Inlet Pressure Pa",
+      "type": "number"
+     },
+     "kind": {
+      "enum": [
+       "pipe",
+       "aerodynamics",
+       "propeller"
+      ],
+      "title": "Kind",
+      "type": "string"
+     },
+     "lift_axis": {
+      "default": [
+       0,
+       0,
+       1
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Lift Axis",
+      "type": "array"
+     },
+     "origin": {
+      "default": [
+       0,
+       0,
+       0
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Origin",
+      "type": "array"
+     },
+     "outlet": {
+      "default": "",
+      "title": "Outlet",
+      "type": "string"
+     },
+     "outlet_pressure_pa": {
+      "default": 0,
+      "title": "Outlet Pressure Pa",
+      "type": "number"
+     },
+     "patches": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Patches",
+      "type": "array"
+     },
+     "ride_height_m": {
+      "default": 0,
+      "maximum": 10.0,
+      "minimum": 0.0,
+      "title": "Ride Height M",
+      "type": "number"
+     },
+     "rpm": {
+      "default": 2000,
+      "title": "Rpm",
+      "type": "number"
+     },
+     "speed": {
+      "default": 10,
+      "minimum": 0.0,
+      "title": "Speed",
+      "type": "number"
+     },
+     "tier": {
+      "default": "custom",
+      "enum": [
+       "basic",
+       "regular",
+       "advanced",
+       "custom"
+      ],
+      "title": "Tier",
+      "type": "string"
+     },
+     "turbulence": {
+      "default": "kOmegaSST",
+      "enum": [
+       "kOmegaSST",
+       "laminar"
+      ],
+      "title": "Turbulence",
+      "type": "string"
+     }
+    },
+    "required": [
+     "geometry_id",
+     "kind"
+    ],
+    "title": "PresetRequest",
+    "type": "object"
+   },
+   "Primitive": {
+    "additionalProperties": false,
+    "properties": {
+     "axis": {
+      "default": [
+       1,
+       0,
+       0
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Axis",
+      "type": "array"
+     },
+     "center": {
+      "default": [
+       0,
+       0,
+       0
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Center",
+      "type": "array"
+     },
+     "dimensions": {
+      "default": [
+       1,
+       1,
+       1
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Dimensions",
+      "type": "array"
+     },
+     "inner_radius": {
+      "default": 0.4,
+      "exclusiveMinimum": 0.0,
+      "title": "Inner Radius",
+      "type": "number"
+     },
+     "length": {
+      "default": 1,
+      "exclusiveMinimum": 0.0,
+      "title": "Length",
+      "type": "number"
+     },
+     "name": {
+      "default": "primitive",
+      "pattern": "^[A-Za-z][A-Za-z0-9_]{0,40}$",
+      "title": "Name",
+      "type": "string"
+     },
+     "radius": {
+      "default": 0.5,
+      "exclusiveMinimum": 0.0,
+      "title": "Radius",
+      "type": "number"
+     },
+     "role": {
+      "default": "solid",
+      "enum": [
+       "solid",
+       "enclosure",
+       "refinement",
+       "rotation"
+      ],
+      "title": "Role",
+      "type": "string"
+     },
+     "shape": {
+      "default": "box",
+      "enum": [
+       "box",
+       "cylinder",
+       "tube",
+       "sphere"
+      ],
+      "title": "Shape",
+      "type": "string"
+     }
+    },
+    "title": "Primitive",
+    "type": "object"
+   },
+   "References": {
+    "additionalProperties": false,
+    "properties": {
+     "area": {
+      "default": 1,
+      "exclusiveMinimum": 0.0,
+      "title": "Area",
+      "type": "number"
+     },
+     "drag_axis": {
+      "default": [
+       1,
+       0,
+       0
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Drag Axis",
+      "type": "array"
+     },
+     "force_groups": {
+      "items": {
+       "$ref": "#/components/schemas/ForceGroup"
+      },
+      "title": "Force Groups",
+      "type": "array"
+     },
+     "front_axle": {
+      "anyOf": [
+       {
+        "maxItems": 3,
+        "minItems": 3,
+        "prefixItems": [
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         }
+        ],
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Front Axle"
+     },
+     "length": {
+      "default": 1,
+      "exclusiveMinimum": 0.0,
+      "title": "Length",
+      "type": "number"
+     },
+     "lift_axis": {
+      "default": [
+       0,
+       0,
+       1
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Lift Axis",
+      "type": "array"
+     },
+     "object_forward": {
+      "anyOf": [
+       {
+        "maxItems": 3,
+        "minItems": 3,
+        "prefixItems": [
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         }
+        ],
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Object Forward"
+     },
+     "object_up": {
+      "default": [
+       0,
+       0,
+       1
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Object Up",
+      "type": "array"
+     },
+     "origin": {
+      "default": [
+       0,
+       0,
+       0
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Origin",
+      "type": "array"
+     },
+     "rear_axle": {
+      "anyOf": [
+       {
+        "maxItems": 3,
+        "minItems": 3,
+        "prefixItems": [
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         }
+        ],
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Rear Axle"
+     },
+     "thrust_axis": {
+      "default": [
+       -1,
+       0,
+       0
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Thrust Axis",
+      "type": "array"
+     }
+    },
+    "title": "References",
+    "type": "object"
+   },
+   "RotatingZone": {
+    "additionalProperties": false,
+    "description": "An additional MRF zone. The legacy `rotation` block remains the zone named 'rotor'.",
+    "properties": {
+     "axis": {
+      "default": [
+       1,
+       0,
+       0
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Axis",
+      "type": "array"
+     },
+     "blade_radius": {
+      "exclusiveMinimum": 0.0,
+      "title": "Blade Radius",
+      "type": "number"
+     },
+     "kind": {
+      "default": "propeller",
+      "enum": [
+       "propeller",
+       "fan",
+       "rim"
+      ],
+      "title": "Kind",
+      "type": "string"
+     },
+     "length": {
+      "exclusiveMinimum": 0.0,
+      "title": "Length",
+      "type": "number"
+     },
+     "name": {
+      "pattern": "^[A-Za-z][A-Za-z0-9_]{0,30}$",
+      "title": "Name",
+      "type": "string"
+     },
+     "origin": {
+      "default": [
+       0,
+       0,
+       0
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Origin",
+      "type": "array"
+     },
+     "patches": {
+      "items": {
+       "type": "string"
+      },
+      "minItems": 1,
+      "title": "Patches",
+      "type": "array"
+     },
+     "radius": {
+      "exclusiveMinimum": 0.0,
+      "title": "Radius",
+      "type": "number"
+     },
+     "rpm": {
+      "maximum": 100000.0,
+      "minimum": -100000.0,
+      "title": "Rpm",
+      "type": "number"
+     }
+    },
+    "required": [
+     "name",
+     "rpm",
+     "radius",
+     "length",
+     "blade_radius",
+     "patches"
+    ],
+    "title": "RotatingZone",
+    "type": "object"
+   },
+   "Rotation": {
+    "additionalProperties": false,
+    "properties": {
+     "axis": {
+      "default": [
+       1,
+       0,
+       0
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Axis",
+      "type": "array"
+     },
+     "blade_radius": {
+      "default": 0.5,
+      "exclusiveMinimum": 0.0,
+      "title": "Blade Radius",
+      "type": "number"
+     },
+     "enabled": {
+      "default": false,
+      "title": "Enabled",
+      "type": "boolean"
+     },
+     "length": {
+      "default": 0.5,
+      "exclusiveMinimum": 0.0,
+      "title": "Length",
+      "type": "number"
+     },
+     "origin": {
+      "default": [
+       0,
+       0,
+       0
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Origin",
+      "type": "array"
+     },
+     "patches": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Patches",
+      "type": "array"
+     },
+     "radius": {
+      "default": 0.6,
+      "exclusiveMinimum": 0.0,
+      "title": "Radius",
+      "type": "number"
+     },
+     "rpm": {
+      "default": 2000,
+      "maximum": 100000.0,
+      "minimum": -100000.0,
+      "title": "Rpm",
+      "type": "number"
+     },
+     "stationary_patches": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Stationary Patches",
+      "type": "array"
+     }
+    },
+    "title": "Rotation",
+    "type": "object"
+   },
+   "RotorSuggestion": {
+    "additionalProperties": false,
+    "properties": {
+     "axis": {
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Axis",
+      "type": "array"
+     },
+     "origin": {
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Origin",
+      "type": "array"
+     },
+     "patches": {
+      "items": {
+       "type": "string"
+      },
+      "minItems": 1,
+      "title": "Patches",
+      "type": "array"
+     }
+    },
+    "required": [
+     "patches",
+     "origin",
+     "axis"
+    ],
+    "title": "RotorSuggestion",
+    "type": "object"
+   },
+   "SimulationSpec": {
+    "additionalProperties": false,
+    "properties": {
+     "boundaries": {
+      "items": {
+       "$ref": "#/components/schemas/Boundary"
+      },
+      "title": "Boundaries",
+      "type": "array"
+     },
+     "convergence": {
+      "$ref": "#/components/schemas/Convergence"
+     },
+     "design": {
+      "$ref": "#/components/schemas/DesignAdvice"
+     },
+     "domain": {
+      "$ref": "#/components/schemas/Domain"
+     },
+     "elements": {
+      "$ref": "#/components/schemas/Elements"
+     },
+     "environment": {
+      "$ref": "#/components/schemas/Environment"
+     },
+     "flow": {
+      "$ref": "#/components/schemas/Flow"
+     },
+     "fluid": {
+      "$ref": "#/components/schemas/Fluid"
+     },
+     "free_surface": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/FreeSurface"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "geometry_id": {
+      "pattern": "^[a-f0-9]{32}$",
+      "title": "Geometry Id",
+      "type": "string"
+     },
+     "mesh": {
+      "$ref": "#/components/schemas/Mesh"
+     },
+     "mode": {
+      "default": "external",
+      "enum": [
+       "external",
+       "internal",
+       "rotor"
+      ],
+      "title": "Mode",
+      "type": "string"
+     },
+     "name": {
+      "default": "Untitled study",
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     },
+     "outputs": {
+      "$ref": "#/components/schemas/Outputs"
+     },
+     "project_id": {
+      "anyOf": [
+       {
+        "pattern": "^[a-f0-9]{32}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Project Id"
+     },
+     "references": {
+      "$ref": "#/components/schemas/References"
+     },
+     "regions": {
+      "items": {
+       "$ref": "#/components/schemas/Primitive"
+      },
+      "title": "Regions",
+      "type": "array"
+     },
+     "rotation": {
+      "$ref": "#/components/schemas/Rotation"
+     },
+     "schema_version": {
+      "default": 1,
+      "enum": [
+       1,
+       2
+      ],
+      "title": "Schema Version",
+      "type": "integer"
+     },
+     "solver": {
+      "$ref": "#/components/schemas/Solver"
+     },
+     "time": {
+      "$ref": "#/components/schemas/TimeControl"
+     },
+     "use_case": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/UseCase"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "geometry_id"
+    ],
+    "title": "SimulationSpec",
+    "type": "object"
+   },
+   "Solver": {
+    "additionalProperties": false,
+    "properties": {
+     "auto_retry": {
+      "default": 0,
+      "maximum": 3.0,
+      "minimum": 0.0,
+      "title": "Auto Retry",
+      "type": "integer"
+     },
+     "initialise": {
+      "default": "uniform",
+      "enum": [
+       "uniform",
+       "potential"
+      ],
+      "title": "Initialise",
+      "type": "string"
+     },
+     "iterations": {
+      "default": 1000,
+      "maximum": 100000.0,
+      "minimum": 10.0,
+      "title": "Iterations",
+      "type": "integer"
+     },
+     "numerics": {
+      "default": "standard",
+      "enum": [
+       "standard",
+       "robust"
+      ],
+      "title": "Numerics",
+      "type": "string"
+     },
+     "processes": {
+      "default": 4,
+      "maximum": 64.0,
+      "minimum": 1.0,
+      "title": "Processes",
+      "type": "integer"
+     },
+     "residual_target": {
+      "default": 1e-05,
+      "exclusiveMinimum": 0.0,
+      "maximum": 0.1,
+      "title": "Residual Target",
+      "type": "number"
+     },
+     "timeout_minutes": {
+      "default": 120,
+      "maximum": 10080.0,
+      "minimum": 1.0,
+      "title": "Timeout Minutes",
+      "type": "integer"
+     },
+     "write_interval": {
+      "default": 100,
+      "maximum": 10000.0,
+      "minimum": 1.0,
+      "title": "Write Interval",
+      "type": "integer"
+     }
+    },
+    "title": "Solver",
+    "type": "object"
+   },
+   "StudyParameter": {
+    "additionalProperties": false,
+    "properties": {
+     "path": {
+      "enum": [
+       "flow.speed",
+       "flow.alpha_deg",
+       "flow.beta_deg",
+       "environment.yaw_deg",
+       "environment.ride_height_m",
+       "rotation.rpm",
+       "mesh.tier",
+       "geometry_id"
+      ],
+      "title": "Path",
+      "type": "string"
+     },
+     "values": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "string"
+        }
+       ]
+      },
+      "maxItems": 30,
+      "minItems": 1,
+      "title": "Values",
+      "type": "array"
+     }
+    },
+    "required": [
+     "path",
+     "values"
+    ],
+    "title": "StudyParameter",
+    "type": "object"
+   },
+   "Sweep": {
+    "additionalProperties": false,
+    "properties": {
+     "parameter": {
+      "enum": [
+       "speed",
+       "alpha_deg",
+       "rpm",
+       "surface_level"
+      ],
+      "title": "Parameter",
+      "type": "string"
+     },
+     "spec": {
+      "$ref": "#/components/schemas/SimulationSpec"
+     },
+     "values": {
+      "items": {
+       "type": "number"
+      },
+      "maxItems": 30,
+      "minItems": 1,
+      "title": "Values",
+      "type": "array"
+     }
+    },
+    "required": [
+     "spec",
+     "parameter",
+     "values"
+    ],
+    "title": "Sweep",
+    "type": "object"
+   },
+   "TimeControl": {
+    "additionalProperties": false,
+    "properties": {
+     "average_after_fraction": {
+      "default": 0.3,
+      "maximum": 0.9,
+      "minimum": 0.0,
+      "title": "Average After Fraction",
+      "type": "number"
+     },
+     "duration_s": {
+      "anyOf": [
+       {
+        "exclusiveMinimum": 0.0,
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Duration S"
+     },
+     "flow_throughs": {
+      "default": 8,
+      "exclusiveMinimum": 0.0,
+      "maximum": 100.0,
+      "title": "Flow Throughs",
+      "type": "number"
+     },
+     "frames": {
+      "default": 60,
+      "maximum": 300.0,
+      "minimum": 0.0,
+      "title": "Frames",
+      "type": "integer"
+     },
+     "max_courant": {
+      "default": 2,
+      "exclusiveMinimum": 0.0,
+      "maximum": 50.0,
+      "title": "Max Courant",
+      "type": "number"
+     },
+     "mode": {
+      "default": "steady",
+      "enum": [
+       "steady",
+       "transient"
+      ],
+      "title": "Mode",
+      "type": "string"
+     },
+     "scale_resolving": {
+      "default": false,
+      "title": "Scale Resolving",
+      "type": "boolean"
+     },
+     "sliding_mesh": {
+      "default": false,
+      "title": "Sliding Mesh",
+      "type": "boolean"
+     }
+    },
+    "title": "TimeControl",
+    "type": "object"
+   },
+   "UseCase": {
+    "additionalProperties": false,
+    "properties": {
+     "confirmed": {
+      "default": false,
+      "title": "Confirmed",
+      "type": "boolean"
+     },
+     "force_patches": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Force Patches",
+      "type": "array"
+     },
+     "kind": {
+      "enum": [
+       "pipe",
+       "aerodynamics",
+       "propeller"
+      ],
+      "title": "Kind",
+      "type": "string"
+     },
+     "references_confirmed": {
+      "default": false,
+      "title": "References Confirmed",
+      "type": "boolean"
+     },
+     "version": {
+      "const": 1,
+      "default": 1,
+      "title": "Version",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "kind"
+    ],
+    "title": "UseCase",
+    "type": "object"
+   },
+   "ValidationError": {
+    "properties": {
+     "ctx": {
+      "title": "Context",
+      "type": "object"
+     },
+     "input": {
+      "title": "Input"
+     },
+     "loc": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "integer"
+        }
+       ]
+      },
+      "title": "Location",
+      "type": "array"
+     },
+     "msg": {
+      "title": "Message",
+      "type": "string"
+     },
+     "type": {
+      "title": "Error Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "loc",
+     "msg",
+     "type"
+    ],
+    "title": "ValidationError",
+    "type": "object"
+   },
+   "Variant": {
+    "additionalProperties": false,
+    "properties": {
+     "label": {
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Label",
+      "type": "string"
+     },
+     "overrides": {
+      "additionalProperties": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "string"
+        }
+       ]
+      },
+      "propertyNames": {
+       "enum": [
+        "flow.speed",
+        "flow.alpha_deg",
+        "flow.beta_deg",
+        "environment.yaw_deg",
+        "environment.ride_height_m",
+        "rotation.rpm",
+        "mesh.tier",
+        "geometry_id"
+       ]
+      },
+      "title": "Overrides",
+      "type": "object"
+     }
+    },
+    "required": [
+     "label"
+    ],
+    "title": "Variant",
+    "type": "object"
+   },
+   "ViewSpec": {
+    "additionalProperties": false,
+    "properties": {
+     "color_range": {
+      "anyOf": [
+       {
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         }
+        ],
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Color Range"
+     },
+     "end": {
+      "default": [
+       1,
+       0,
+       0
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "End",
+      "type": "array"
+     },
+     "field": {
+      "default": "pressure_pa",
+      "enum": [
+       "pressure_pa",
+       "U",
+       "vorticity",
+       "yPlus"
+      ],
+      "title": "Field",
+      "type": "string"
+     },
+     "kind": {
+      "default": "surface",
+      "enum": [
+       "surface",
+       "slice",
+       "clip",
+       "streamlines",
+       "glyphs",
+       "line",
+       "probe"
+      ],
+      "title": "Kind",
+      "type": "string"
+     },
+     "normal": {
+      "default": [
+       0,
+       0,
+       1
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Normal",
+      "type": "array"
+     },
+     "origin": {
+      "default": [
+       0,
+       0,
+       0
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Origin",
+      "type": "array"
+     },
+     "patches": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Patches",
+      "type": "array"
+     },
+     "resolution": {
+      "default": 100,
+      "maximum": 2000.0,
+      "minimum": 2.0,
+      "title": "Resolution",
+      "type": "integer"
+     },
+     "seed_radius": {
+      "default": 0.2,
+      "exclusiveMinimum": 0.0,
+      "title": "Seed Radius",
+      "type": "number"
+     }
+    },
+    "title": "ViewSpec",
+    "type": "object"
+   },
+   "Wheel": {
+    "additionalProperties": false,
+    "properties": {
+     "axis": {
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Axis",
+      "type": "array"
+     },
+     "center": {
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "title": "Center",
+      "type": "array"
+     },
+     "name": {
+      "pattern": "^[A-Za-z][A-Za-z0-9_]{0,30}$",
+      "title": "Name",
+      "type": "string"
+     },
+     "patches": {
+      "items": {
+       "type": "string"
+      },
+      "minItems": 1,
+      "title": "Patches",
+      "type": "array"
+     },
+     "radius": {
+      "exclusiveMinimum": 0.0,
+      "title": "Radius",
+      "type": "number"
+     },
+     "rotating": {
+      "default": true,
+      "title": "Rotating",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "name",
+     "patches",
+     "center",
+     "axis",
+     "radius"
+    ],
+    "title": "Wheel",
+    "type": "object"
+   }
+  }
+ },
+ "info": {
+  "title": "GustSim",
+  "version": "0.2.0"
+ },
+ "openapi": "3.1.0",
+ "paths": {
+  "/api/batches": {
+   "get": {
+    "operationId": "list_batches_api_batches_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "List Batches"
+   },
+   "post": {
+    "operationId": "create_batch_api_batches_post",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "project_id",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Project Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Batch"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Create Batch"
+   }
+  },
+  "/api/batches/{identifier}": {
+   "get": {
+    "operationId": "get_batch_api_batches__identifier__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Batch"
+   }
+  },
+  "/api/capabilities": {
+   "get": {
+    "operationId": "capabilities_api_capabilities_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Capabilities"
+   }
+  },
+  "/api/compare": {
+   "get": {
+    "operationId": "compare_runs_api_compare_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "runs",
+      "required": true,
+      "schema": {
+       "title": "Runs",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "baseline",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Baseline"
+      }
+     },
+     {
+      "in": "query",
+      "name": "columns",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Columns"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Compare Runs"
+   }
+  },
+  "/api/compare/files/{key}/delta.vtp": {
+   "get": {
+    "operationId": "compare_file_api_compare_files__key__delta_vtp_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "key",
+      "required": true,
+      "schema": {
+       "title": "Key",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Compare File"
+   }
+  },
+  "/api/compare/surface": {
+   "post": {
+    "operationId": "compare_surface_api_compare_surface_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "additionalProperties": true,
+        "title": "Body",
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Compare Surface"
+   }
+  },
+  "/api/geometry": {
+   "get": {
+    "operationId": "list_geometry_api_geometry_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "List Geometry"
+   }
+  },
+  "/api/geometry/import": {
+   "post": {
+    "description": "Synchronous import (agents, scripts, small files). The browser uses import-jobs.",
+    "operationId": "import_geometry_api_geometry_import_post",
+    "requestBody": {
+     "content": {
+      "multipart/form-data": {
+       "schema": {
+        "$ref": "#/components/schemas/Body_import_geometry_api_geometry_import_post"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Import Geometry"
+   }
+  },
+  "/api/geometry/import-jobs": {
+   "post": {
+    "description": "Durable import on the CAD lane; progress arrives on /api/runs/{id}/events.",
+    "operationId": "import_geometry_job_api_geometry_import_jobs_post",
+    "requestBody": {
+     "content": {
+      "multipart/form-data": {
+       "schema": {
+        "$ref": "#/components/schemas/Body_import_geometry_job_api_geometry_import_jobs_post"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Import Geometry Job"
+   }
+  },
+  "/api/geometry/primitive": {
+   "post": {
+    "operationId": "primitive_api_geometry_primitive_post",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "parent_id",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Parent Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Primitive"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Primitive"
+   }
+  },
+  "/api/geometry/{identifier}": {
+   "get": {
+    "operationId": "get_geometry_api_geometry__identifier__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Geometry"
+   }
+  },
+  "/api/geometry/{identifier}/defaults": {
+   "get": {
+    "operationId": "get_defaults_api_geometry__identifier__defaults_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Defaults"
+   }
+  },
+  "/api/geometry/{identifier}/export/{fmt}": {
+   "get": {
+    "operationId": "export_geometry_api_geometry__identifier__export__fmt__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "fmt",
+      "required": true,
+      "schema": {
+       "title": "Fmt",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Export Geometry"
+   }
+  },
+  "/api/geometry/{identifier}/prepare": {
+   "post": {
+    "operationId": "prepare_api_geometry__identifier__prepare_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Prepare"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Prepare"
+   }
+  },
+  "/api/geometry/{identifier}/prepare-jobs": {
+   "post": {
+    "operationId": "prepare_job_api_geometry__identifier__prepare_jobs_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Prepare"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Prepare Job"
+   }
+  },
+  "/api/geometry/{identifier}/regroup": {
+   "post": {
+    "operationId": "regroup_api_geometry__identifier__regroup_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "angle",
+      "required": false,
+      "schema": {
+       "default": 35,
+       "title": "Angle",
+       "type": "number"
+      }
+     }
+    ],
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Regroup"
+   }
+  },
+  "/api/geometry/{identifier}/rotor-suggestion": {
+   "post": {
+    "operationId": "rotor_suggestion_api_geometry__identifier__rotor_suggestion_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RotorSuggestion"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Rotor Suggestion"
+   }
+  },
+  "/api/geometry/{identifier}/scene": {
+   "get": {
+    "operationId": "get_scene_api_geometry__identifier__scene_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Scene"
+   }
+  },
+  "/api/geometry/{identifier}/wheels/detect": {
+   "post": {
+    "description": "Suggest wheels: round, flat parts with a sideways axis touching the ground.",
+    "operationId": "detect_wheels_api_geometry__identifier__wheels_detect_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "anyOf": [
+         {
+          "additionalProperties": true,
+          "type": "object"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "title": "Body"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Detect Wheels"
+   }
+  },
+  "/api/health": {
+   "get": {
+    "operationId": "health_api_health_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Health"
+   }
+  },
+  "/api/jobs/{identifier}": {
+   "get": {
+    "operationId": "get_job_api_jobs__identifier__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Job"
+   }
+  },
+  "/api/mesh/estimate": {
+   "post": {
+    "operationId": "mesh_estimate_api_mesh_estimate_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SimulationSpec"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Mesh Estimate"
+   }
+  },
+  "/api/mesh/recommend": {
+   "post": {
+    "operationId": "recommend_mesh_api_mesh_recommend_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SimulationSpec"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Recommend Mesh"
+   }
+  },
+  "/api/mesh/tiers": {
+   "get": {
+    "operationId": "mesh_tier_list_api_mesh_tiers_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Mesh Tier List"
+   }
+  },
+  "/api/porous/fit": {
+   "post": {
+    "description": "Darcy–Forchheimer coefficients for a two-point radiator curve (for display).",
+    "operationId": "fit_porous_api_porous_fit_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "additionalProperties": true,
+        "title": "Body",
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Fit Porous"
+   }
+  },
+  "/api/presets/preview": {
+   "post": {
+    "operationId": "preset_preview_api_presets_preview_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PresetRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Preset Preview"
+   }
+  },
+  "/api/projects": {
+   "get": {
+    "operationId": "list_projects_api_projects_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "List Projects"
+   },
+   "post": {
+    "operationId": "new_project_api_projects_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "additionalProperties": true,
+        "title": "Body",
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "New Project"
+   }
+  },
+  "/api/projects/{identifier}": {
+   "get": {
+    "operationId": "read_project_api_projects__identifier__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Read Project"
+   },
+   "put": {
+    "operationId": "save_project_api_projects__identifier__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "additionalProperties": true,
+        "title": "Body",
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Save Project"
+   }
+  },
+  "/api/runs": {
+   "get": {
+    "description": "Simulation attempts by default; `kinds=all` or a comma list includes job kinds such\nas view extraction and CAD import.",
+    "operationId": "runs_api_runs_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "kinds",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Kinds"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Runs"
+   },
+   "post": {
+    "operationId": "launch_api_runs_post",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "kind",
+      "required": false,
+      "schema": {
+       "default": "solve",
+       "title": "Kind",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "mesh_run_id",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Mesh Run Id"
+      }
+     },
+     {
+      "in": "query",
+      "name": "guided",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Guided",
+       "type": "boolean"
+      }
+     },
+     {
+      "in": "query",
+      "name": "acknowledged",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Acknowledged"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SimulationSpec"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Launch"
+   }
+  },
+  "/api/runs/{identifier}": {
+   "get": {
+    "operationId": "get_run_api_runs__identifier__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Run"
+   }
+  },
+  "/api/runs/{identifier}/cancel": {
+   "post": {
+    "operationId": "cancel_api_runs__identifier__cancel_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Cancel"
+   }
+  },
+  "/api/runs/{identifier}/events": {
+   "get": {
+    "operationId": "events_api_runs__identifier__events_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "after",
+      "required": false,
+      "schema": {
+       "default": 0,
+       "title": "After",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Events"
+   }
+  },
+  "/api/runs/{identifier}/export/share": {
+   "get": {
+    "description": "A single self-contained HTML file with this run's simulation results: opens offline, read-only.",
+    "operationId": "export_share_api_runs__identifier__export_share_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Export Share"
+   }
+  },
+  "/api/runs/{identifier}/export/{kind}": {
+   "get": {
+    "operationId": "export_api_runs__identifier__export__kind__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "kind",
+      "required": true,
+      "schema": {
+       "title": "Kind",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Export"
+   }
+  },
+  "/api/runs/{identifier}/files/{relative}": {
+   "get": {
+    "operationId": "artifact_api_runs__identifier__files__relative__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "relative",
+      "required": true,
+      "schema": {
+       "title": "Relative",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Artifact"
+   }
+  },
+  "/api/runs/{identifier}/monitor": {
+   "get": {
+    "description": "Residual and load histories read from the solver's own tables (authoritative backfill\nfor live charts; the SSE stream carries the same row shapes incrementally).",
+    "operationId": "run_monitor_api_runs__identifier__monitor_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "after_iteration",
+      "required": false,
+      "schema": {
+       "default": -1,
+       "title": "After Iteration",
+       "type": "number"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Run Monitor"
+   }
+  },
+  "/api/runs/{identifier}/package": {
+   "post": {
+    "operationId": "queue_package_api_runs__identifier__package_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Queue Package"
+   }
+  },
+  "/api/runs/{identifier}/report": {
+   "post": {
+    "operationId": "queue_report_api_runs__identifier__report_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Queue Report"
+   }
+  },
+  "/api/runs/{identifier}/results/{document}": {
+   "get": {
+    "operationId": "result_document_api_runs__identifier__results__document__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "document",
+      "required": true,
+      "schema": {
+       "title": "Document",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Result Document"
+   }
+  },
+  "/api/runs/{identifier}/retry": {
+   "post": {
+    "operationId": "retry_api_runs__identifier__retry_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "guided",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Guided",
+       "type": "boolean"
+      }
+     }
+    ],
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Retry"
+   }
+  },
+  "/api/runs/{identifier}/review": {
+   "post": {
+    "operationId": "review_mesh_api_runs__identifier__review_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "configuration_id",
+      "required": true,
+      "schema": {
+       "title": "Configuration Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "acknowledge_warnings",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Acknowledge Warnings",
+       "type": "boolean"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Review Mesh"
+   }
+  },
+  "/api/runs/{identifier}/views": {
+   "get": {
+    "operationId": "views_api_runs__identifier__views_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Views"
+   },
+   "post": {
+    "operationId": "create_view_api_runs__identifier__views_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ViewSpec"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Create View"
+   }
+  },
+  "/api/runs/{identifier}/views/{view_id}/samples": {
+   "get": {
+    "operationId": "samples_api_runs__identifier__views__view_id__samples_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "view_id",
+      "required": true,
+      "schema": {
+       "title": "View Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Samples"
+   }
+  },
+  "/api/samples": {
+   "get": {
+    "operationId": "list_samples_api_samples_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "List Samples"
+   }
+  },
+  "/api/samples/{identifier}": {
+   "post": {
+    "operationId": "create_sample_api_samples__identifier__post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Create Sample"
+   }
+  },
+  "/api/setups": {
+   "get": {
+    "operationId": "setups_api_setups_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Setups"
+   },
+   "post": {
+    "operationId": "save_setup_api_setups_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SimulationSpec"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Save Setup"
+   }
+  },
+  "/api/simulations": {
+   "get": {
+    "operationId": "list_simulations_api_simulations_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "project_id",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Project Id"
+      }
+     },
+     {
+      "in": "query",
+      "name": "tag",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Tag"
+      }
+     },
+     {
+      "in": "query",
+      "name": "status",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Status"
+      }
+     },
+     {
+      "in": "query",
+      "name": "q",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Q"
+      }
+     },
+     {
+      "in": "query",
+      "name": "archived",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Archived",
+       "type": "boolean"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "List Simulations"
+   },
+   "post": {
+    "description": "Validate a setup and start its pipeline: mesh, review, solve and results package.\n\nBody: {spec, plan?, name?, tags?, acknowledged?}. Review findings (including experimental\nphysics) must be acknowledged for this exact configuration id, as for guided launches.",
+    "operationId": "create_simulation_api_simulations_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "additionalProperties": true,
+        "title": "Body",
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Create Simulation"
+   }
+  },
+  "/api/simulations/{identifier}": {
+   "get": {
+    "operationId": "get_simulation_api_simulations__identifier__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Simulation"
+   },
+   "patch": {
+    "operationId": "patch_simulation_api_simulations__identifier__patch",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "additionalProperties": true,
+        "title": "Body",
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Patch Simulation"
+   }
+  },
+  "/api/simulations/{identifier}/cancel": {
+   "post": {
+    "operationId": "cancel_simulation_api_simulations__identifier__cancel_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Cancel Simulation"
+   }
+  },
+  "/api/simulations/{identifier}/continue": {
+   "post": {
+    "operationId": "continue_simulation_api_simulations__identifier__continue_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identifier",
+      "required": true,
+      "schema": {
+       "title": "Identifier",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "acknowledge_warnings",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Acknowledge Warnings",
+       "type": "boolean"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Continue Simulation"
+   }
+  },
+  "/api/studies": {
+   "get": {
+    "operationId": "studies_api_studies_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Studies"
+   },
+   "post": {
+    "operationId": "study_api_studies_post",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "guided",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Guided",
+       "type": "boolean"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Sweep"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Study"
+   }
+  },
+  "/api/validate": {
+   "post": {
+    "operationId": "validate_api_validate_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SimulationSpec"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Validate"
+   }
+  }
+ }
+}

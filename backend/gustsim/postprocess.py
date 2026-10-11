@@ -14,7 +14,10 @@ def main():
     case=Path(sys.argv[1]); output=Path(sys.argv[2]); output.mkdir(parents=True,exist_ok=True)
     spec=json.loads((case/"simulation.json").read_text())
     request=json.loads(Path(sys.argv[3]).read_text()) if len(sys.argv)>3 else {"kind":"surface","field":"pressure_pa"}
-    reader=OpenFOAMReader(FileName=str(case/"gustsim.foam"))
+    sys.path.insert(0,str(Path(__file__).resolve().parent))  # pvbatch runs this file without gustsim installed
+    from foamread import foam_file
+    foam=str(foam_file(case))
+    reader=OpenFOAMReader(FileName=foam)
     reader.UpdatePipelineInformation()
     regions=list(reader.MeshRegions.Available)
     geometry=json.loads((case/'geometry.json').read_text())
@@ -68,7 +71,7 @@ def main():
             raise RuntimeError('Extract exceeds the 40 MB browser budget; use a smaller slice or clip')
     if len(sys.argv)<=3:
         # Full volume export uses internalMesh only; surface patches are exported separately.
-        volume_reader=OpenFOAMReader(FileName=str(case/'gustsim.foam'));volume_reader.UpdatePipelineInformation();volume_reader.MeshRegions=['internalMesh'];volume_reader.CellArrays=selected_fields
+        volume_reader=OpenFOAMReader(FileName=foam);volume_reader.UpdatePipelineInformation();volume_reader.MeshRegions=['internalMesh'];volume_reader.CellArrays=selected_fields
         volume=Calculator(Input=volume_reader);volume.AttributeType='Cell Data';volume.ResultArrayName='pressure_pa';volume.Function=calc.Function;volume.UpdatePipeline(time)
         flat=MergeBlocks(Input=volume);flat.UpdatePipeline(time)
         SaveData(str(output/'volume.vtu'),proxy=flat)
@@ -101,4 +104,9 @@ def main():
     ResetCamera(view);SaveScreenshot(str(output/'view.png'),view)
     SaveState(str(output/'view.pvsm'))
 
-if __name__=='__main__':main()
+if __name__=='__main__':
+    try:main()
+    finally:
+        sys.path.insert(0,str(Path(__file__).resolve().parent))
+        from foamread import cleanup
+        cleanup(Path(sys.argv[1]))

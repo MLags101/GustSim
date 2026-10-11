@@ -134,3 +134,119 @@ The Slipstream comparison's laminar-pipe gate, parallel snappyHexMesh, load-base
    Tessellation deflection is still a fixed 0.25 mm absolute regardless of part size.
 5. **Results depth.** Slice planes are still a backend round-trip per adjustment; client-side
    slicing of the already-exported `volume.vtu`, and a 3D hover probe, are still open.
+
+## AirShaper-style upgrade (2026-10-09): milestones M0–M4
+
+The plan was to move toward AirShaper's style and capabilities while staying local. It has seven parts:
+- one-page setup
+- dashboard
+- tabbed results
+- rule-based insights
+- elements
+- tiers
+- convergence-based stopping
+
+Milestones M0–M6 are implemented. M5 (design advice), M7 (free surface and sliding-mesh AMI) and adaptive refinement are compiled and labelled experimental; their benchmark gates and the new Linux smokes have not been run. M8 polish covers contrast, the tour, chart data tables, reduced motion and viewer keyboard shortcuts. There are still no 3D element gizmos. See VALIDATION.md for exactly what was run: the smoke matrix on the pinned v2606 image, the production stack on an existing data volume (migration included), and the HTTP verification scripts. It also lists the seven defects those runs found and how each was fixed.
+
+### Upgrading an existing installation
+
+1. Stop the stack with `docker compose stop`.
+2. Back up the volume with `docker compose run --rm --no-deps -v .:/backup api python -m gustsim.backup create /backup/gustsim-data.tar.gz` (see README).
+3. Run `docker compose up --build`.
+
+On startup the API migrates SQLite additively (`migrations.py`). Before migrating it takes an online backup into `DATA/backups/schema/`, checks it with `integrity_check` and writes a sha256 sidecar. It refuses to run against a newer schema. Workers wait for the schema (`require_schema`).
+
+Old v1 runs are never rewritten. Their compiled cases stay byte-identical (`tests/golden`). Their configuration identity is unchanged unless a v2 field differs from its default.
+
+### Backend code map (new)
+
+**Infrastructure**
+
+| Module | Purpose |
+|---|---|
+| `migrations.py` | Schema versions and verified backup |
+| `db.py` | Lanes (`compute`, `post`, `cad`), claim by lane, per-lane heartbeats and recovery, `merge_result` |
+| `capabilities.py` | Maturity, gates and runtime probe for each capability |
+| `cadworker.py` | Async CAD import and preparation jobs |
+| `jobs/` | Post-lane jobs: results `package`, then PDF `report` |
+| `pipeline.py` | Simulations: mesh → automatic review only with zero findings → solve → package → report; continue and cancel |
+
+**Mesh and solve**
+
+| Module | Purpose |
+|---|---|
+| `mesh_tiers.py` | Basic, Regular and Advanced tiers resolved into numeric mesh fields |
+| `estimate.py` | Cell, memory and runtime estimates, calibrated from completed runs. `wake_boxes` is shared with the compiler. |
+| `convergence.py` | Force-convergence detector |
+| `monitor.py` | Live monitor; writes the `gustsim.stop` file read by the `abort` function object |
+| `retry.py` | Auto-retry rules; each retry is a new attempt |
+| `foam_functions.py` | Output function objects |
+
+**Results**
+
+| Module | Purpose |
+|---|---|
+| `postpackage.py` | Runs under pvbatch: surface Cp/Cf, friction lines, Cpt = 0 cloud, Q, noise proxy, rakes, section stacks and renders |
+| `manifest.py` | Describes the results package |
+| `forces.py` | Wind and object frames, pressure/viscous split, axle split, blockage, parts, speed curve |
+| `insights.py` | Versioned rules |
+| `compare.py`, `batches.py` | Comparison and batch runs |
+| `report_pdf.py` | matplotlib PDF report |
+| `samples.py` | Sample models |
+
+**Elements**
+
+| Module | Purpose |
+|---|---|
+| `wheels.py` | Wheel detection |
+| `foam_elements.py` | Compiles ground, wheels, zones, porous media and openings |
+| `elements.py` | `results/elements.json` |
+| `transient.py` | Transient stage: plan (duration from flow-throughs, Courant-bounded step, averaging window, frames), `pimpleFoam` dictionaries and function objects, restart time state, statistics (`results/transient.json`) |
+| `adjoint.py`, `jobs/optimise.py` | Design advice: `adjointOptimisationFoam` sensitivity on the finished steady time, then a separate morphing attempt (volumetric B-splines, BFGS) that stores a `morphed` revision and queues a check simulation |
+| `foamread.py` | Reader-safe shadow case for the assert-enabled VTK 9.5 in the worker image (see VALIDATION.md, defect 2); used by `postpackage.py` and `postprocess.py` |
+
+**Spec v2** (`models.py`) adds:
+- `environment`, `elements`, `convergence`, `time` and `outputs`
+- `mesh.tier` and `mesh.wake_level_offset`
+- `solver.numerics` and `solver.initialise`
+
+`workflow.mesh_identity` lets physics-only changes reuse a reviewed mesh.
+
+### Frontend code map (replaces `src/App.tsx` and friends)
+
+- **Routing:** `src/app/` (shell, top bar, hash routes).
+- **API layer:** `src/api/` (client, generated `schema.gen.ts`, TanStack Query hooks).
+- **State:** `src/state/` (preferences: theme, units, colormap).
+- **Shared code:** `src/ui/` (primitives), `src/lib/` (units, colormaps, evidence).
+- **Viewer:** `src/viewer/` holds the vtk.js `Viewport` with layers, legend from the LUT, probe/pick, camera presets and overlays (ground, boxes, dimensions).
+- **Features:** under `src/features/`:
+  - `dashboard`
+  - `setup`: one page, elements editors in `ElementsEditor.tsx`
+  - `simulation`: progress, results tabs Flow/Forces/Insights/Compare/Other
+  - `compare`
+  - `settings`
+  - `onboarding`
+- **Browser agent:** `src/agent/BrowserTools.tsx` keeps the eight browser-agent tool names.
+
+### Checks
+
+- **Without Node:** `docker build --target web-check .` runs gen:api check, ESLint, `tsc` and Vitest.
+- **With Node:** `pnpm check` and `pnpm e2e`. Playwright needs a local API serving `dist/`; see `playwright.config.ts`.
+- **After any model or API change:** regenerate the API types with `python scripts/export_openapi.py && pnpm gen:api`. `tests/test_openapi_snapshot.py` catches drift.
+- **On a Linux worker:**
+  - run `python scripts/probe_runtime.py`
+  - run the `smoke_linux.py` flags listed in VALIDATION.md
+  - `--compile-only` checks case generation on any OS without OpenFOAM
+- **Against a running stack:** `python scripts/verify_pipeline.py http://localhost:8080` drives the v2 simulations pipeline end to end: sample, preset, launch, mesh review, solve with early stop, package, insights and PDF. Run it alongside `verify_compose.py` and `verify_guided.py`.
+
+**Pre-upgrade runs.** Solve runs made outside the pipeline (all runs from before v2, and runs queued through the run API) appear on the dashboard as adopted simulations. These are `simulations` rows whose plan has `legacy_run` and only references the run; the run record is not modified (`pipeline.adopt_legacy_runs`). They open in legacy mode, and `POST /api/runs/{id}/package` builds a modern results package for them.
+
+### Open items in M4
+
+- Adaptive mesh refinement is compiled. The Advanced tier requests one cycle. The mesh-study gate is not executed.
+- Free surface and sliding-mesh AMI are compiled and labelled experimental. Their gates and Linux smokes have not been run.
+- The element smoke runs pass on the pinned image (see VALIDATION.md); none of the element gates has been executed.
+- Elements are positioned with numeric fields; there are no 3D gizmos for rotors or radiators yet.
+- The offline share bundle is `GET /api/runs/{id}/export/share`. The batch UI is the setup dialog and `/batches/:id`.
+- Frontend dev server: `scripts/web.ps1`, `scripts/web.sh`, or `docker compose -f compose.yaml -f compose.dev.yaml --profile web up`.
+- Design advice (M5) compiles an `adjointOptimisationFoam` sensitivity map after the steady solve and, when design boxes are set, queues a separate morphing attempt. The `adjoint_fd` and `morph_verification` gates are not executed. `scripts/smoke_linux.py --adjoint` and `--morph` are the execution checks; they have not been run on the pinned image for this change.
