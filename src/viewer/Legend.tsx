@@ -7,9 +7,9 @@ export function Legend({ colormap, range, label, unit, captions }: { colormap: C
   const [low, high] = range;
   const ticks = niceTicks(low, high, 5).filter((t) => t >= Math.min(low, high) && t <= Math.max(low, high));
   const span = high - low || 1;
-  return <div className="pointer-events-auto w-64 rounded-xl border border-line bg-surface/95 px-3 py-2 shadow-sm backdrop-blur" role="img" aria-label={`Colour scale for ${label} from ${significant(low)} to ${significant(high)} ${unit || ''}`}>
-    <div className="mb-1 flex items-baseline justify-between gap-2"><span className="truncate text-xs font-semibold text-ink">{label}</span>{unit && unit !== '1' && <span className="text-[11px] text-muted">{unit}</span>}</div>
-    <div className="h-2.5 rounded-sm" style={{ background: cssGradient(map) }} />
+  return <div className="pointer-events-auto w-48 rounded-xl border border-line bg-surface/95 px-2.5 py-1.5 shadow-sm backdrop-blur" role="img" aria-label={`Colour scale for ${label} from ${significant(low)} to ${significant(high)} ${unit || ''}`}>
+    <div className="mb-1 flex items-baseline justify-between gap-2"><span className="truncate text-[11px] font-semibold text-ink">{label}</span>{unit && unit !== '1' && <span className="text-[11px] text-muted">{unit}</span>}</div>
+    <div className="h-1.5 rounded-full" style={{ background: cssGradient(map) }} />
     <div className="relative mt-0.5 h-4 text-[10px] tabular-nums text-muted">
       {ticks.map((t) => <span key={t} className="absolute -translate-x-1/2" style={{ left: `${((t - low) / span) * 100}%` }}>{significant(t, 3)}</span>)}
     </div>

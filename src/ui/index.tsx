@@ -47,6 +47,25 @@ export function Segmented<T extends string>({ value, options, onChange, label, s
   </div>;
 }
 
+/** Viewer field pills (surface or volume), floating over the 3D view. */
+export function Pills<T extends string>({ value, options, onChange, label }: { value: T; options: { value: T; label: ReactNode; disabled?: boolean; title?: string }[]; onChange: (value: T) => void; label: string }) {
+  return <div className="flex max-w-full items-center gap-0.5 overflow-x-auto rounded-full bg-[var(--pill-bar)] p-1 shadow-sm backdrop-blur scrollbar-thin" role="radiogroup" aria-label={label}>
+    <span className="shrink-0 px-2 text-[10px] font-semibold uppercase tracking-wider text-ink-2/70" aria-hidden>{label}</span>
+    {options.map((option) => <button key={option.value} type="button" role="radio" aria-checked={value === option.value} title={option.title} disabled={option.disabled}
+      onClick={() => onChange(option.value)}
+      className={cx('shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+        value === option.value ? 'bg-surface text-accent-ink shadow-sm ring-1 ring-accent/50' : 'text-ink-2 hover:bg-surface/70')}>{option.label}</button>)}
+  </div>;
+}
+
+/** A card floating over the full-bleed 3D view. */
+export function FloatCard({ title, right, children, className }: { title?: ReactNode; right?: ReactNode; children: ReactNode; className?: string }) {
+  return <section className={cx('rounded-xl border border-line bg-surface/95 shadow-[var(--shadow-card)] backdrop-blur', className)}>
+    {(title || right) && <header className="flex items-center justify-between gap-2 px-3.5 pt-3">{typeof title === 'string' ? <h3 className="text-[13px] font-semibold">{title}</h3> : title}{right}</header>}
+    <div className="space-y-2.5 px-3.5 pb-3.5 pt-2.5">{children}</div>
+  </section>;
+}
+
 export function Field({ label, children, hint, id }: { label: ReactNode; children: ReactNode; hint?: ReactNode; id?: string }) {
   return <div className="space-y-1" id={id}><label className="label">{label}</label>{children}{hint && <p className="hint">{hint}</p>}</div>;
 }

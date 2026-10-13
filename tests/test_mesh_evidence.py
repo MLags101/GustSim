@@ -329,3 +329,101 @@ def test_external_mode_keeps_the_wake_refinement_box(tmp_path):
     from gustsim import foam
     folder = foam.compile_case(_layer_spec(), tmp_path / 'external')
     assert 'wake' in (folder / 'system' / 'snappyHexMeshDict').read_text()
+
+
+V2606_LAYER_LOG = """
+patch   faces    layers avg thickness[m]
+                         near-wall overall
+-----   -----    ------ --------- -------
+block_0 2812     3      0.00137   0.00643
+
+Mesh with layers : cells:623712  faces:1943590  points:697342  unbalance:0.1814619568
+
+patch   faces        layers        overall thickness
+                 target   mesh     [m]       [%]
+-----   -----    -----    ----     ---       ---
+block_0 2812     3        2.65     0.00554   86.1
+block_1 6854     3        2.73     0.00576   88.9
+
+
+Doing final balancing
+"""
+
+
+def test_layer_coverage_reads_the_final_v2606_table():
+    """Regression: the planning table came first and the final table's units line stopped the
+    parser, so every v2606 mesh reported 'no layer table'."""
+    coverage = workflow.layer_coverage(V2606_LAYER_LOG)
+    assert [p['patch'] for p in coverage['patches']] == ['block_0', 'block_1']
+    assert coverage['patches'][0]['layers'] == pytest.approx(2.65) and coverage['patches'][0]['requested_layers'] == 3
+    assert coverage['patches'][1]['thickness_fraction'] == pytest.approx(0.889)
+    assert coverage['mean_layers'] == pytest.approx((2812*2.65 + 6854*2.73)/(2812 + 6854))
+
+
+# checkMesh -meshQuality on the hover-propeller demo (v2606): the generic geometry test flags five
+# boundary faces with skewness above 4, while the explicit limits (4 internal, 20 boundary) pass.
+BOUNDARY_SKEW_LOG = '''Checking geometry...
+    Non-orthogonality check OK.
+    Face pyramids OK.
+ ***Max skewness = 5.260062531, 5 highly skew faces detected which may impair the quality of the results
+  <<Writing 5 skew faces to set skewFaces
+    Coupled point location match (average 0) OK.
+Checking faces in error :
+    non-orthogonality >  65 degrees                        : 0
+    faces with face pyramid volume < 1e-13                 : 0
+    faces with face-decomposition tet quality < 1e-15      : 0
+    faces with concavity >  80 degrees                     : 0
+    faces with skewness >   4 (internal) or  20 (boundary) : 0
+    faces with interpolation weights (0..1)  <  0.02       : 0
+    faces with volume ratio of neighbour cells <  0.01     : 0
+    faces with face twist <  0.02                          : 0
+    faces on cells with determinant < 0.001                : 0
+
+Failed 1 mesh checks.
+'''
+
+
+def test_boundary_skewness_within_the_explicit_limit_passes_with_a_note():
+    from gustsim.workflow import quality_limits
+    passed, detail = quality_limits(BOUNDARY_SKEW_LOG)
+    assert passed and '5 boundary faces' in detail and '20' in detail
+    assert quality_limits('...\nMesh OK.\n') == (True, 'Explicit OpenFOAM mesh-quality limits')
+
+
+def test_explicit_limit_violations_or_other_failures_still_fail():
+    from gustsim.workflow import quality_limits
+    internal = BOUNDARY_SKEW_LOG.replace('(internal) or  20 (boundary) : 0', '(internal) or  20 (boundary) : 3')
+    assert not quality_limits(internal)[0]
+    other = BOUNDARY_SKEW_LOG.replace('    Face pyramids OK.', ' ***Error in face pyramids: 2 faces are incorrectly oriented.')
+    assert not quality_limits(other)[0]
+    assert not quality_limits('')[0]
+
+
+# checkMesh -allTopology -allGeometry on the wing demo (720,143 cells, v2606): a few isolated cut
+# cells at the trailing edge, as snappyHexMesh produces on most real geometry.
+WING_DIAGNOSTICS = '''Mesh stats
+    points:           803211
+    cells:            720143
+Checking geometry...
+ ***Cells with small determinant (< 0.001) found, number of cells: 4
+ ***Concave cells (using face planes) found, number of cells: 25300
+ ***Faces with small interpolation weight (< 0.05) found, number of faces: 8
+
+Failed 3 mesh checks.
+'''
+
+
+def test_a_few_isolated_cut_cells_are_information_not_a_review():
+    from gustsim.workflow import extended_diagnostics
+    status, detail = extended_diagnostics(WING_DIAGNOSTICS)
+    assert status == 'info' and 'number of cells: 4' in detail
+
+
+def test_many_poor_cells_or_other_failures_still_need_review():
+    from gustsim.workflow import extended_diagnostics
+    many = WING_DIAGNOSTICS.replace('number of cells: 4\n', 'number of cells: 400\n')
+    assert extended_diagnostics(many)[0] == 'review'
+    flipped = WING_DIAGNOSTICS.replace('Failed 3', ' ***Zero or negative cell volume detected.  Minimum negative volume: -1e-12\nFailed 4')
+    assert extended_diagnostics(flipped)[0] == 'review'
+    no_total = WING_DIAGNOSTICS.replace('    cells:            720143\n', '')
+    assert extended_diagnostics(no_total)[0] == 'review'

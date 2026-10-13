@@ -228,9 +228,15 @@ def extend_numerics(folder):
     """Add adjoint discretisation the primal solve does not use. Called after the primal has finished."""
     schemes = folder / 'system' / 'fvSchemes'
     text = schemes.read_text(encoding='utf-8')
-    if 'div(phi,Ua)' not in text:
-        extra = (' div(phi,Ua) bounded Gauss linearUpwind grad(Ua);'
+    if 'div(-phi,Ua)' not in text:
+        # The adjoint equations convect with -phi (fvm::div(-phi, Ua)), so the v2606 scheme names
+        # are div(-phi,Ua), div(-phi,ka), div(-phi,wa) as in the adjointOptimisationFoam
+        # tutorials. Unused names are harmless; the +phi spellings and both adjoint stress
+        # spellings are kept so a solver variant never finds `default none` without an entry.
+        extra = (' div(-phi,Ua) bounded Gauss linearUpwind grad(Ua); div(phi,Ua) bounded Gauss linearUpwind grad(Ua);'
+                 ' div(-phi,ka) bounded Gauss upwind; div(-phi,wa) bounded Gauss upwind;'
                  ' div(phi,ka) bounded Gauss upwind; div(phi,wa) bounded Gauss upwind;'
+                 ' div((nuEff*dev(grad(Ua).T()))) Gauss linear; div((nuEff*dev(T(grad(Ua))))) Gauss linear;'
                  ' div((nuEff*dev2(T(grad(Ua))))) Gauss linear;')
         needle = 'div((nuEff*dev2(T(grad(U))))) Gauss linear;'
         if needle not in text:
@@ -239,7 +245,9 @@ def extend_numerics(folder):
     solution = folder / 'system' / 'fvSolution'
     text = solution.read_text(encoding='utf-8')
     if '"(pa|Ua|ka|wa)' not in text:
-        extra = ' "(pa|Ua|ka|wa|nua).*" { solver smoothSolver; smoother symGaussSeidel; tolerance 1e-8; relTol 0.1; }'
+        # ma (adjoint mesh movement) and da (adjoint eikonal) are solved while the surface
+        # sensitivities are computed.
+        extra = ' "(pa|Ua|ka|wa|nua|ma|da).*" { solver smoothSolver; smoother symGaussSeidel; tolerance 1e-8; relTol 0.1; }'
         solution.write_text(text.replace('solvers {', 'solvers {' + extra, 1), encoding='utf-8', newline='\n')
 
 
@@ -257,12 +265,50 @@ def continue_control(folder, extra_iterations):
         stop.unlink()
 
 
+def adjoint_boundary(boundary):
+    """(Ua, pa) boundary entries for one compiled boundary (v2606 adjoint conditions)."""
+    kind = boundary.kind
+    if kind == 'symmetry':
+        return 'type symmetryPlane;', 'type symmetryPlane;'
+    if kind in ('wall', 'moving_wall', 'rotating_wall'):
+        return 'type adjointWallVelocity; value uniform (0 0 0);', 'type zeroGradient;'
+    if kind == 'slip':
+        return 'type slip;', 'type zeroGradient;'
+    if kind in ('velocity_inlet', 'flow_inlet'):
+        return 'type adjointInletVelocity; value uniform (0 0 0);', 'type zeroGradient;'
+    if kind in ('pressure_outlet', 'flow_outlet', 'pressure_inlet'):
+        return 'type adjointOutletVelocity; value uniform (0 0 0);', 'type adjointOutletPressure; value uniform 0;'
+    return 'type adjointFarFieldVelocity; value uniform (0 0 0);', 'type adjointFarFieldPressure; value uniform 0;'
+
+
+def write_adjoint_fields(spec, folder, time_name):
+    """Zero initial adjoint fields Ua and pa in the primal time the adjoint starts from."""
+    target = Path(folder) / time_name
+    velocity, pressure = '', ''
+    for boundary in spec.boundaries:
+        ua, pa = adjoint_boundary(boundary)
+        velocity += f'{boundary.patch} {{ {ua} }}\n'
+        pressure += f'{boundary.patch} {{ {pa} }}\n'
+    foam.write(target, 'Ua', f'dimensions [0 1 -1 0 0 0 0];\ninternalField uniform (0 0 0);\nboundaryField\n{{\n{velocity}}}', 'volVectorField')
+    foam.write(target, 'pa', f'dimensions [0 2 -2 0 0 0 0];\ninternalField uniform 0;\nboundaryField\n{{\n{pressure}}}', 'volScalarField')
+
+
 def write_sensitivity(spec, folder):
     patches = objective_patches(spec)
     if not patches:
         raise ValueError('Design advice has no model wall to differentiate')
     folder = Path(folder)
+    primal = latest_time_name(folder)
+    if primal is not None:
+        write_adjoint_fields(spec, folder, primal)
     foam.write(folder, 'system/optimisationDict', optimisation_dict(spec, patches, morph=False))
+    # smoothSensitivities solves on a finite-area mesh of the sensitivity patches.
+    foam.write(folder, 'system/finite-area/faSchemes',
+               'ddtSchemes { default steadyState; }\ngradSchemes { default Gauss linear; }\ndivSchemes { default none; }\n'
+               'laplacianSchemes { default Gauss linear corrected; }\ninterpolationSchemes { default linear; }\n'
+               'snGradSchemes { default corrected; }')
+    foam.write(folder, 'system/finite-area/faSolution',
+               'solvers { ".*" { solver PCG; preconditioner DIC; tolerance 1e-8; relTol 0; } }')
     body = turbulence_dict(spec)
     foam.write(folder, 'constant/adjointTurbulenceProperties', body)
     foam.write(folder, 'constant/adjointRASProperties', body)

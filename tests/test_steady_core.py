@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
-from gustsim import config, db, estimate, foam, geometry, mesh_tiers, presets, quality, retry, validation
+from gustsim import capabilities, config, db, estimate, foam, geometry, mesh_tiers, presets, quality, retry, validation
 from gustsim.api import app
 from gustsim.convergence import Detector, averaged
 from gustsim.models import Convergence, Primitive, PresetRequest, SimulationSpec
@@ -32,12 +32,23 @@ def test_tiers_are_monotonic_deterministic_and_bounded():
     assert levels == sorted(levels) and len(set(levels)) == 3
     assert [resolved[t].mesh.nested_wake_boxes for t in resolved] == [1, 2, 3]
     assert all(r.mesh.surface_level <= mesh_tiers.MAX_SURFACE_LEVEL for r in resolved.values())
-    assert all(r.convergence.enabled for r in resolved.values())
+    # Early stopping and adaptive refinement are experimental: a tier never switches them on,
+    # but it keeps a configuration's explicit opt-in.
+    assert not any(r.convergence.enabled for r in resolved.values())
+    assert all(r.convergence.cap == r.solver.iterations for r in resolved.values())
+    assert not any(capabilities.experimental_used(r) for r in resolved.values())
+    opted = spec.model_copy(deep=True); opted.convergence.enabled = True; opted.mesh.adaptive_cycles = 1
+    kept = mesh_tiers.resolve(opted, 'advanced')
+    assert kept.convergence.enabled and kept.mesh.adaptive_cycles == (1 if 'adaptive_mesh' in validation.COMPILED_FEATURES else 0)
+    assert 'early_stop' in capabilities.experimental_used(kept)
+    report = validation.validate(kept)
+    assert report['physics_maturity'] == 'experimental' and any(f['code'] == 'experimental_physics' for f in report['findings'])
     assert mesh_tiers.resolve(spec, 'regular') == resolved['regular']
-    assert mesh_tiers.apply(spec) is spec  # custom is untouched
+    # Custom keeps every mesh setting; only the point inside the fluid may move off a grid plane.
+    custom = mesh_tiers.apply(spec)
+    assert custom.mesh == spec.mesh and custom.solver == spec.solver and custom.convergence == spec.convergence
     assert all(r.mesh.max_cells <= max(mesh_tiers.memory_cells(), 100_000) for r in resolved.values())
-    # Advanced only asks for adaptive refinement once the compiler supports it.
-    assert resolved['advanced'].mesh.adaptive_cycles == (1 if 'adaptive_mesh' in validation.COMPILED_FEATURES else 0)
+    assert resolved['advanced'].mesh.adaptive_cycles == 0
     for r in resolved.values():
         assert validation.validate(r)['valid'], validation.validate(r)['errors']
 
@@ -199,7 +210,8 @@ def test_api_validate_resolves_tier_and_estimate_endpoints():
         report = client.post('/api/validate', json=body).json()
         assert report['valid'], report['errors']
         assert report['resolved_spec']['mesh']['nested_wake_boxes'] == 2
-        assert report['resolved_spec']['convergence']['enabled']
+        assert not report['resolved_spec']['convergence']['enabled'], 'early stopping is an experimental opt-in'
+        assert report['physics_maturity'] == 'core'
         tiers = client.get('/api/mesh/tiers').json()
         assert [t['tier'] for t in tiers] == ['basic', 'regular', 'advanced']
         est = client.post('/api/mesh/estimate', json=body).json()
@@ -208,6 +220,7 @@ def test_api_validate_resolves_tier_and_estimate_endpoints():
 
 def test_monitor_endpoint_and_progress_labels(tmp_path):
     g, spec = aero('basic')
+    spec.convergence.enabled = True  # experimental opt-in: the label promises an early stop
     job = db.enqueue(spec.model_dump(), 'solve')
     root = config.DATA / 'runs' / job['id']
     write_case_tables(root, spec, rows=50)
@@ -219,10 +232,23 @@ def test_monitor_endpoint_and_progress_labels(tmp_path):
         assert body['forces'][0]['iteration'] == 11 and 'drag_n' in body['forces'][0]
         progress = client.get(f"/api/runs/{job['id']}").json()['progress']
         assert progress['basis'] == 'convergence monitor' and 'cap 2000' in progress['label']
+        assert 'stops early' in progress['label']
+        # Without the opt-in the full budget runs, and the label must not promise an early stop.
+        spec.convergence.enabled = False
+        plain = db.enqueue(spec.model_dump(), 'solve')
+        other = config.DATA / 'runs' / plain['id']
+        write_case_tables(other, spec, rows=50)
+        (other / 'results').mkdir(parents=True, exist_ok=True)
+        (other / 'results/convergence_live.json').write_text(json.dumps({'state': 'searching', 'cap': 2000, 'averaging_start': None}))
+        db.update(plain['id'], status='running', stage='solve')
+        label = client.get(f"/api/runs/{plain['id']}").json()['progress']['label']
+        assert 'early stopping is off' in label and 'stops early' not in label
 
 
 def test_v2_case_contains_stop_and_output_function_objects(tmp_path):
     g, spec = aero('regular')
+    assert 'gustsimStop' not in (foam.compile_case(spec, tmp_path / 'plain') / 'system/controlDict').read_text()
+    spec.convergence.enabled = True  # experimental opt-in
     case = foam.compile_case(spec, tmp_path / 'case')
     control = (case / 'system/controlDict').read_text()
     assert f'endTime {spec.solver.iterations}' in control
@@ -232,3 +258,51 @@ def test_v2_case_contains_stop_and_output_function_objects(tmp_path):
     assert 'p 0.3' not in (case / 'system/fvSolution').read_text()
     still = spec.model_copy(deep=True); still.flow.speed = 0
     assert 'pressureCoefficient' not in foam.compile_case(still, tmp_path / 'still').joinpath('system/controlDict').read_text()
+
+
+def test_detector_averages_bluff_body_lift_oscillating_about_zero():
+    """Regression: a symmetric bluff block (steady drag ~25 N, RANS lift oscillating +-4 N about
+    zero) was stopped as a 'runaway' at iteration 220 because lift was judged against its own
+    near-zero mean."""
+    rng = np.random.default_rng(3)
+    n = np.arange(1, 4001)
+    drag = 25.4 + 4*np.exp(-n/20) + rng.normal(0, 0.25, len(n))
+    lift = -0.9 + 3*np.sin(n/4.0) + rng.normal(0, 0.5, len(n))
+    d = Detector(Convergence(enabled=True), {'drag_n': 0.5, 'lift_n': 0.5})
+    for i, (a, b) in enumerate(zip(drag, lift), start=1):
+        d.add(i, {'drag_n': a, 'lift_n': b})
+        if d.should_stop:
+            break
+    assert d.state == 'converged', d.summary()['message']
+    mean, _, _ = averaged(d.iterations, d.values['lift_n'], d.window())
+    assert abs(mean + 0.9) < 0.3 and 'oscillate' in d.summary()['message']
+
+
+def test_detector_flags_genuine_divergence():
+    n = np.arange(1, 3001)
+    growing = 10*np.exp(n/400.0)
+    d = run_detector(growing)
+    assert d.state == 'runaway'
+    nan = np.r_[np.full(150, 10.0), np.full(400, np.nan)]
+    assert run_detector(nan).state == 'runaway'
+
+
+def test_a_solve_that_meets_its_residual_targets_early_is_judged_on_its_loads(tmp_path):
+    """An attached-flow case can meet every residual target in ~150 iterations, before the
+    detector's 200-iteration minimum; its steady loads must not be reported as unsettled."""
+    from gustsim.monitor import assess
+    g, spec = aero('basic')
+    (tmp_path/'logs').mkdir()
+    history = [{'iteration': i, 'force': [0.25 + 4*math.exp(-i/10), 0.0, 1e-5*math.sin(i)], 'moment': [0, 0, 0]} for i in range(1, 151)]
+    (tmp_path/'logs/solve.log').write_text('Time = 150\n\nSIMPLE solution converged in 150 iterations\n')
+    detector = assess(tmp_path, spec, history)
+    summary = detector.summary()
+    assert summary['state'] == 'converged' and 'residual targets' in summary['message']
+    assert summary['averaging']['end'] == 150 and summary['averaging']['start'] >= 100
+    # Without the solver's own convergence, the same short history stays unjudged.
+    (tmp_path/'logs/solve.log').write_text('Time = 150\n')
+    assert assess(tmp_path, spec, history).summary()['state'] == 'iteration_limit'
+    # A residual stop with loads still drifting is not accepted.
+    drifting = [{'iteration': i, 'force': [0.25 + 0.002*i, 0.0, 0.0], 'moment': [0, 0, 0]} for i in range(1, 151)]
+    (tmp_path/'logs/solve.log').write_text('SIMPLE solution converged in 150 iterations\n')
+    assert assess(tmp_path, spec, drifting).summary()['state'] != 'converged'

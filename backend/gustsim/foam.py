@@ -61,6 +61,20 @@ def boundary_field(spec,b,field):
     if b.kind in ("pressure_outlet","flow_outlet"):return f"type inletOutlet; inletValue uniform {val}; value uniform {val};"
     return "type zeroGradient;"
 
+def set_patch_field(folder,field,patch,entry):
+    """Replace one patch's entry in a compiled 0/<field> file (one `name { ... }` line per patch)."""
+    path=Path(folder)/"0"/field
+    lines=path.read_text(encoding="utf-8").split("\n")
+    prefix=patch+" { "
+    found=False
+    for i,line in enumerate(lines):
+        if line.startswith(prefix):
+            lines[i]=f"{patch} {{ {entry} }}"
+            found=True
+    if not found:raise ValueError(f"0/{field} has no entry for {patch}")
+    path.write_text("\n".join(lines),encoding="utf-8",newline="\n")
+
+
 def end_time(spec):
     if spec.convergence.enabled:
         return min(spec.solver.iterations,spec.convergence.cap)
@@ -77,17 +91,24 @@ def write_schemes(spec,folder,robust_start=False):
 
 def write_solution(spec,folder):
     solvers=f'''solvers {{ p {{ solver GAMG; tolerance 1e-8; relTol 0.01; smoother GaussSeidel; }} "(U|k|omega)" {{ solver smoothSolver; smoother symGaussSeidel; tolerance 1e-8; relTol 0.1; }}'''
+    consistent="yes"
     if spec.schema_version>=2:
         # SIMPLEC (consistent yes) is formulated for an unrelaxed pressure with momentum
         # relaxation near 0.9; v1 cases keep their original factors for reproducibility.
         solvers+=" Phi { solver GAMG; smoother DIC; tolerance 1e-6; relTol 0.01; }"
         relaxation='relaxationFactors { equations { U 0.9; ".*" 0.7; } }'
         potential="\npotentialFlow { nNonOrthogonalCorrectors 3; }"
+        if spec.rotation.enabled or spec.elements.rotating_zones:
+            # Rotating regions (MRF) diverge under SIMPLEC's aggressive factors: a hovering
+            # rotor has no freestream to damp the start. Use the classic SIMPLE factors of the
+            # OpenFOAM MRF tutorials instead: relaxed pressure, U 0.7.
+            consistent="no"
+            relaxation='relaxationFactors { fields { p 0.3; } equations { U 0.7; ".*" 0.7; } }'
     else:
         relaxation="relaxationFactors { fields { p 0.3; } equations { U 0.7; k 0.7; omega 0.7; } }"
         potential=""
     write(folder,"system/fvSolution",f'''{solvers} }}
-SIMPLE {{ nNonOrthogonalCorrectors 1; consistent yes; residualControl {{ p {spec.solver.residual_target}; U {spec.solver.residual_target}; "(k|omega)" {spec.solver.residual_target}; }} }}
+SIMPLE {{ nNonOrthogonalCorrectors 1; consistent {consistent}; residualControl {{ p {spec.solver.residual_target}; U {spec.solver.residual_target}; "(k|omega)" {spec.solver.residual_target}; }} }}
 {relaxation}{potential}''')
 
 
@@ -177,11 +198,15 @@ def compile_case(spec:SimulationSpec,folder:Path):
         refinements.append(f"amrIndicator {{ mode distance; levels (({source.distance_m:.8g} {source.level})); }}")
     # Rotating zones (the legacy region is the zone named 'rotor') and porous zones.
     zone_geo,zone_refine,actions,mrf=foam_elements.zones(spec,boundaries,spec.mesh.surface_level)
+    zone_surfaces=[]
     if spec.time.sliding_mesh:
-        # The cell zone stays, so the mesh check can see the rotor. Motion is the sliding mesh, not MRF.
+        # Motion is the sliding mesh, not MRF. snappyHexMesh snaps the rotor cylinder as a
+        # faceZone/cellZone pair, so the AMI interface is a true surface of revolution; a
+        # cell-centre (topoSet) selection would leave a staircase that cannot slide on itself.
         mrf = []
+        actions = []
         from . import foam_ami
-        actions += foam_ami.face_actions(spec)
+        zone_surfaces = foam_ami.zone_surfaces(spec)
     porous_geo,porous_refine,porous_actions,porous_options,porous_functions=foam_elements.porous(spec,spec.mesh.surface_level)
     for entry in zone_geo+porous_geo:geo+="\n"+entry
     refinements+=zone_refine+porous_refine
@@ -192,7 +217,7 @@ def compile_case(spec:SimulationSpec,folder:Path):
     # The relaxed profile helps snapping and layering; the acceptance gate (meshQualityDict,
     # checkMesh) never changes.
     relaxed=spec.mesh.quality_profile=="relaxed"
-    surfaces="\n".join(f"{p} {{ level ({spec.mesh.surface_level} {spec.mesh.surface_level}); patchInfo {{ type {patch_type(p)}; }} }}" for p in patches)
+    surfaces="\n".join([f"{p} {{ level ({spec.mesh.surface_level} {spec.mesh.surface_level}); patchInfo {{ type {patch_type(p)}; }} }}" for p in patches]+zone_surfaces)
     layer_patches="\n".join(f"{b.patch} {{ nSurfaceLayers {spec.mesh.layers}; }}" for b in boundaries if b.patch in patches and b.kind in {"wall","moving_wall","rotating_wall"})
     features="\n".join(f'{{ file "{p}.eMesh"; level {spec.mesh.feature_level}; }}' for p in patches)
     write(folder,"system/snappyHexMeshDict",f"""
@@ -247,13 +272,17 @@ mergeTolerance 1e-6;
     write_solution(spec,folder)
     write(folder,"system/decomposeParDict",f"numberOfSubdomains {spec.solver.processes};\nmethod scotch;")
     force_patches=[b.patch for b in boundaries if b.patch in patches and b.kind in {"wall","moving_wall","rotating_wall"}]
-    # Porous resistance is a body force on the fluid; forces then also report it separately.
-    porosity=" porosity yes;" if spec.elements.porous else ""
-    def force_function(name,selection):
-        return f'''{name} {{ type forces; libs ("libforces.so"); patches ({' '.join(selection)}); rho rhoInf; rhoInf {spec.fluid.density}; pRef 0; CofR {vector(spec.references.origin)}; log true;{porosity} writeControl timeStep; writeInterval 1; }}'''
+    # Porous resistance is a body force on the fluid. Only the total loads include it (reported
+    # as a separate column); per-surface, part, wheel and rotor loads are wall loads only, so
+    # the radiator is not counted once per object.
+    def force_function(name,selection,porosity=False):
+        porous=" porosity yes;" if porosity else ""
+        # interFoam's p is already in Pa and its density is the VOF mixture field `rho`.
+        density="rho rho;" if spec.free_surface is not None else f"rho rhoInf; rhoInf {spec.fluid.density};"
+        return f'''{name} {{ type forces; libs ("libforces.so"); patches ({' '.join(selection)}); {density} pRef 0; CofR {vector(spec.references.origin)}; log true;{porous} writeControl timeStep; writeInterval 1; }}'''
     load_selection=spec.use_case.force_patches if spec.use_case and spec.use_case.force_patches else force_patches
     v2=spec.schema_version>=2
-    functions=force_function("loads",load_selection)
+    functions=force_function("loads",load_selection,porosity=bool(spec.elements.porous))
     # Per-surface loads stay for v1. v2 caps them (a STEP model has one surface per CAD face)
     # and reports named part groups instead.
     if not v2 or len(force_patches)<=64:
@@ -274,7 +303,8 @@ mergeTolerance 1e-6;
                 functions+=f'\ntotalpressure_{b.patch} {{ type surfaceFieldValue; libs (fieldFunctionObjects); regionType patch; name {b.patch}; operation weightedAverage; weightField phi; fields (gustsimTotalPressure); writeFields false; writeControl timeStep; writeInterval 1; }}'
                 functions+=f'\nabsoluteFlux_{b.patch} {{ type surfaceFieldValue; libs (fieldFunctionObjects); regionType patch; name {b.patch}; operation sumMag; fields (phi); writeFields false; writeControl timeStep; writeInterval 1; }}'
     if v2:
-        group_functions,groups=foam_functions.part_force_functions(spec,meta,patches,force_function)
+        # Part groups cover only the surfaces the total loads measure, so the parts add up to it.
+        group_functions,groups=foam_functions.part_force_functions(spec,meta,load_selection,force_function)
         functions+=group_functions
         functions+=foam_functions.output_functions(spec,force_patches)
         (folder/"force_groups.json").write_text(json.dumps([{"name":n,"patches":s} for n,s in groups],indent=2),encoding="utf-8")
@@ -286,7 +316,7 @@ mergeTolerance 1e-6;
         foam_multiphase.prepare(spec, folder, boundaries)
     elif spec.time.sliding_mesh:
         from . import foam_ami
-        foam_ami.prepare(spec, folder)
+        foam_ami.prepare(spec, folder, boundaries)
     # Preserve an executable-free manifest; worker chooses the actual command sequence.
     libraries={}
     for name in ('gustsim','numpy','trimesh','pydantic','vtk','cadquery-ocp'):

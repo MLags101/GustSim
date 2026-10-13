@@ -62,7 +62,8 @@ def rotor_load(row, spec):
 
 def solve_log(case):
     # The robust numerics profile solves in two stages with separate logs.
-    return "\n".join((case/"logs"/name).read_text(errors="replace") for name in ("solve_startup.log","solve.log") if (case/"logs"/name).exists())
+    # A free-surface run solves in a single interFoam stage.
+    return "\n".join((case/"logs"/name).read_text(errors="replace") for name in ("solve_startup.log","solve.log","free_surface.log") if (case/"logs"/name).exists())
 
 
 def convergence_assessment(case,spec,history):
@@ -78,6 +79,26 @@ def convergence_assessment(case,spec,history):
     path.parent.mkdir(parents=True,exist_ok=True)
     path.write_text(json.dumps(summary,indent=2),encoding="utf-8")
     return summary
+
+
+def compiled_boundaries(spec):
+    """Boundaries as the case compiler wrote them (ground, wheels and openings applied)."""
+    if getattr(spec,"schema_version",1)<2:return list(spec.boundaries)
+    from .foam_elements import effective_boundaries
+    return effective_boundaries(spec)
+
+
+def table_value(rows,window,averaged_values=True):
+    """Column 1 of a function-object table: the window mean (v2, consistent with the loads),
+    else the last row (v1 behaviour)."""
+    rows=[r for r in rows if len(r)>=2]
+    if not rows:return None
+    if not averaged_values:return rows[-1][1]
+    from .convergence import averaged
+    finite=[r for r in rows if np.isfinite(r[1])]
+    if not finite:return rows[-1][1]
+    mean,_,_=averaged([r[0] for r in finite],[r[1] for r in finite],window)
+    return float(mean)
 
 
 def window_mean(rows,key,window):
@@ -96,17 +117,10 @@ def analyze(case:Path,spec:SimulationSpec):
     for r in residuals:
         if r['iteration']!=last_iteration:last={};last_iteration=r['iteration']
         last.setdefault(r['field'],r['initial'])
-    required={"p","Ux","Uy","Uz"} | ({"k","omega"} if spec.flow.turbulence!="laminar" else set())
+    free_surface=getattr(spec,"free_surface",None) is not None
+    # interFoam solves p_rgh (and, without a momentum predictor, no U equation).
+    required=({"p_rgh"} if free_surface else {"p","Ux","Uy","Uz"}) | ({"k","omega"} if spec.flow.turbulence!="laminar" else set())
     residual_pass=required<=last.keys() and all(last[f]<=spec.solver.residual_target for f in required)
-    imbalance=None; fluxes={}; pressures={}
-    for boundary in spec.boundaries:
-        rows=latest_table(case,f"postProcessing/flux_{boundary.patch}/*/surfaceFieldValue.dat")
-        if rows and len(rows[-1])>=2:fluxes[boundary.patch]=rows[-1][1]
-        rows=latest_table(case,f"postProcessing/pressure_{boundary.patch}/*/surfaceFieldValue.dat")
-        if rows and len(rows[-1])>=2:pressures[boundary.patch]=rows[-1][1]*spec.fluid.density
-    if fluxes:
-        throughput=sum(abs(v) for v in fluxes.values())/2
-        if throughput>1e-12:imbalance=abs(sum(fluxes.values()))/throughput
     steady=stability(history,"force")
     v2=spec.schema_version>=2
     transient_stats=None
@@ -120,6 +134,21 @@ def analyze(case:Path,spec:SimulationSpec):
     else:
         convergence=convergence_assessment(case,spec,history) if v2 and history else None
         window=tuple((convergence.get("averaging") or {}).get(k) for k in ("start","end")) if convergence and convergence.get("averaging") else None
+    # Boundary fluxes and pressures: v2 reports the same averaging window as the loads (else the
+    # trailing 20 %), not the last iteration. Flux tables exist for the compiled boundaries, so
+    # openings count as the inlets/outlets they compile to.
+    boundaries=compiled_boundaries(spec)
+    imbalance=None; fluxes={}; pressures={}
+    # Single-phase p is kinematic (m²/s²); interFoam's p is already in Pa.
+    pressure_scale=1.0 if free_surface else spec.fluid.density
+    for boundary in boundaries:
+        value=table_value(latest_table(case,f"postProcessing/flux_{boundary.patch}/*/surfaceFieldValue.dat"),window,v2)
+        if value is not None:fluxes[boundary.patch]=value
+        value=table_value(latest_table(case,f"postProcessing/pressure_{boundary.patch}/*/surfaceFieldValue.dat"),window,v2)
+        if value is not None:pressures[boundary.patch]=value*pressure_scale
+    if fluxes:
+        throughput=sum(abs(v) for v in fluxes.values())/2
+        if throughput>1e-12:imbalance=abs(sum(fluxes.values()))/throughput
     rotor_history=force_history(case,"rotorLoads") if spec.rotation.enabled else []
     projected_history=[{'iteration':row['iteration'],'drag_n':float(np.asarray(row['force'])@spec.references.drag_axis),'lift_n':float(np.asarray(row['force'])@spec.references.lift_axis)} for row in history]
     rotor_load_history=[value for row in rotor_history if (value:=rotor_load(row,spec)) is not None]
@@ -129,11 +158,14 @@ def analyze(case:Path,spec:SimulationSpec):
     findings=[]
     def check(code,passed,detail):
         findings.append({"code":code,"status":"pass" if passed is True else "fail" if passed is False else "unavailable","detail":detail})
-    check("mesh","Mesh OK." in mesh_log,"OpenFOAM checkMesh")
+    from .workflow import quality_limits
+    check("mesh",quality_limits(mesh_log)[0],"OpenFOAM checkMesh against the explicit mesh-quality limits")
     advanced=(case/'logs/mesh_diagnostics.log').read_text(errors='replace') if (case/'logs/mesh_diagnostics.log').exists() else ''
     if 'Failed ' in advanced:
-        findings.append({'code':'extended_mesh_diagnostics','status':'review','detail':'Extended geometry diagnostics reported findings (including possible concave cells). Inspect logs/mesh_diagnostics.log; explicit solver mesh-quality limits passed separately.'})
-    if transient_stats is None:
+        from .workflow import extended_diagnostics
+        status,detail=extended_diagnostics(advanced)
+        findings.append({'code':'extended_mesh_diagnostics','status':status,'detail':detail})
+    if transient_stats is None and not v2:
         res_msg=f"All solved fields meet residual target ({spec.solver.residual_target})" if residual_pass else f"Field residuals remain above target ({spec.solver.residual_target}); increase iterations in solver controls"
         check("residuals",residual_pass,res_msg)
     check("mass_balance",imbalance<0.001 if imbalance is not None else None,"Net boundary flux below 0.1% of throughflow")
@@ -150,8 +182,18 @@ def analyze(case:Path,spec:SimulationSpec):
         state=convergence["state"] if convergence else None
         check("load_convergence",state=="converged" if state else None,
               convergence["message"] if convergence else "No force history was recorded")
+        # In v2 the monitored loads are the convergence criterion. RANS residuals often plateau
+        # above the strict residual target once the loads have settled; that is information,
+        # not a defect, as long as they dropped well below 1e-3.
+        worst=max((last[f] for f in required if f in last),default=None)
+        if residual_pass:
+            check("residuals",True,f"All solved fields meet residual target ({spec.solver.residual_target})")
+        elif state=="converged" and worst is not None and worst<=1e-3:
+            findings.append({"code":"residuals","status":"info","detail":f"Residuals plateaued at {worst:.2g} (target {spec.solver.residual_target}); the monitored loads converged, which is this run's stopping criterion"})
+        else:
+            check("residuals",False,f"Field residuals remain above target ({spec.solver.residual_target})"+(f"; worst {worst:.2g}" if worst is not None else "")+"; increase iterations or review the mesh")
     else:check("load_stability",steady<0.01 if steady is not None else None,"Force variation below 1% over the last 20 iterations")
-    if spec.rotation.enabled:check("torque_stability",torque_steady<0.01 if torque_steady is not None else None,"Torque variation below 1% over the last 20 iterations")
+    if spec.rotation.enabled and not v2:check("torque_stability",torque_steady<0.01 if torque_steady is not None else None,"Torque variation below 1% over the last 20 iterations")
     converged="solution converged" in text.lower()
     stopped_by=((convergence or {}).get("stop") or {}).get("by")
     termination="residual_control" if converged else stopped_by or "iteration_limit"
@@ -197,15 +239,15 @@ def analyze(case:Path,spec:SimulationSpec):
         power=torque*2*math.pi*n
         advance=-float(np.asarray(spec.flow.velocity())@spec.references.thrust_axis)
         metrics.update(thrust_n=thrust,torque_nm=torque,shaft_power_w=power,ct=thrust/(spec.fluid.density*n*n*diameter**4),cq=torque/(spec.fluid.density*n*n*diameter**5),advance_ratio=advance/(n*diameter),efficiency=thrust*advance/power if power>0 and advance>0 and thrust>0 else None)
-    inlet=[pressures[b.patch] for b in spec.boundaries if b.kind in {"velocity_inlet","flow_inlet","pressure_inlet"} and b.patch in pressures]
-    outlet=[pressures[b.patch] for b in spec.boundaries if b.kind=="pressure_outlet" and b.patch in pressures]
+    inlet=[pressures[b.patch] for b in boundaries if b.kind in {"velocity_inlet","flow_inlet","pressure_inlet"} and b.patch in pressures]
+    outlet=[pressures[b.patch] for b in boundaries if b.kind=="pressure_outlet" and b.patch in pressures]
     metrics["pressure_drop_pa"]=inlet[0]-outlet[0] if spec.mode=='internal' and len(inlet)==len(outlet)==1 else None
     from .analysis import pipe_metrics, definitions
     reason=''
     if spec.mode=='internal':
-        pipe,extra,reason=pipe_metrics(case,spec,fluxes,pressures)
+        pipe,extra,reason=pipe_metrics(case,spec,fluxes,pressures,window=window if v2 else None,averaged_values=v2)
         metrics.update(pipe);findings.extend(extra)
-    numerical=all(f["status"]=="pass" for f in findings if f["code"]!="experimental_validation")
+    numerical=all(f["status"] in ("pass","info") for f in findings if f["code"]!="experimental_validation")
     # One pass per patch: force_history globs and reparses force.dat/moment.dat on every call.
     components={}
     for b in spec.boundaries:

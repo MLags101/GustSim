@@ -11,6 +11,22 @@ def unit(v):
     return a / np.linalg.norm(a)
 
 
+def hydraulic_diameter(mesh, mask):
+    """D_h = 4A/P of one planar cap (a surface group): A its area, P the length of its boundary
+    edges (edges used by exactly one of its triangles). None when it cannot be measured."""
+    faces = mesh.faces[mask]
+    if not len(faces):
+        return None
+    area = float(mesh.area_faces[mask].sum())
+    edges = np.sort(np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]]), axis=1)
+    unique, counts = np.unique(edges, axis=0, return_counts=True)
+    rim = unique[counts == 1]
+    perimeter = float(np.linalg.norm(mesh.vertices[rim[:, 0]] - mesh.vertices[rim[:, 1]], axis=1).sum())
+    if area <= 0 or perimeter <= 0:
+        return None
+    return 4*area/perimeter
+
+
 def rotor_suggestion(identifier, request):
     meta = db.geometry(identifier)
     names = {p['name']:p['group'] for p in meta['patches']}
@@ -77,6 +93,11 @@ def generate(request):
             raise ValueError('Guided pipe outlet must be planar; choose a planar cap')
         speed = request.flow_rate/area if request.driving=='flow' else request.speed
         spec.flow.speed = speed
+        # Inlet turbulence length scale of developed duct flow, ≈0.07 D_h with D_h = 4A/P of the
+        # inlet cap, instead of a fraction of the whole model's longest dimension.
+        hydraulic = hydraulic_diameter(mesh, mask)
+        if hydraulic:
+            spec.flow.length_scale = 0.07*hydraulic
         spec.mode='internal';spec.domain.fluid_point=tuple(center)
         inlet = Boundary(patch=request.inlet, kind={'flow':'flow_inlet','speed':'velocity_inlet','pressure':'pressure_inlet'}[request.driving],
                          velocity=tuple(direction*speed), flow_rate=request.flow_rate, pressure_pa=request.inlet_pressure_pa)

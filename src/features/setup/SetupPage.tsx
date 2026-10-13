@@ -7,17 +7,18 @@ import type { Finding, Geometry, Vec3 } from '../../api/types';
 import { usePreferences } from '../../state/preferences';
 import { formatQuantity, significant } from '../../lib/units';
 import { transformMatrix } from '../../lib/euler';
-import { Badge, Check as CheckBox, EmptyState, ExperimentalBadge, Field, Notice, NumberField, QuantityField, Segmented, SelectField, Spinner, VectorField, cx, toast } from '../../ui';
+import { Badge, Check as CheckBox, EmptyState, ExperimentalBadge, Field, Notice, NumberField, QuantityField, Segmented, SelectField, Spinner, Switch, VectorField, cx, toast } from '../../ui';
 import { ViewerFrame } from '../../viewer/ViewerFrame';
 import { useViewerTheme } from '../../viewer/theme';
 import { ComponentList } from './ComponentList';
 import { DesignEditor, OpeningsEditor, RadiatorsEditor, RotorsEditor, WheelsEditor } from './ElementsEditor';
 import { BatchDialog } from '../batches/BatchDialog';
+import { RotorCard } from './RotorCard';
 import { useAgentBridge } from '../../agent/BrowserTools';
 import { useSetup, type SetupState, type Tier } from './useSetup';
 
 function Step({ n, id, title, description, children, aside }: { n: number; id: string; title: string; description?: string; children: ReactNode; aside?: ReactNode }) {
-  return <section id={id} className="card scroll-mt-20" data-tour={`setup-${id}`}>
+  return <section id={id} className="card scroll-mt-3" data-tour={`setup-${id}`}>
     <header className="flex items-start gap-3 border-b border-line px-4 py-3 sm:px-5">
       <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-accent-soft text-sm font-bold text-accent-ink">{n}</span>
       <div className="min-w-0 flex-1"><h2 className="text-[15px] font-semibold">{title}</h2>{description && <p className="hint mt-0.5">{description}</p>}</div>
@@ -173,12 +174,9 @@ function FlowSection({ s }: { s: SetupState }) {
           <VectorField label="Lift direction (perpendicular to travel)" value={intent.lift_axis} onChange={(lift_axis) => s.setIntent({ lift_axis })} /></div></details>
     </>}
     {intent.kind === 'propeller' && <>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <QuantityField label="Rotational speed (signed, right-hand rule)" quantity="rotation" value={intent.rpm} onChange={(rpm) => s.setIntent({ rpm })} />
-        <QuantityField label="Axial inflow (0 = still fluid)" quantity="speed" value={intent.speed} min={0} onChange={(speed) => s.setIntent({ speed })} />
-      </div>
-      <VectorField label="Rotation axis" value={intent.axis} onChange={(axis) => s.setIntent({ axis })} />
-      <VectorField label="Rotation centre · m" value={intent.origin} onChange={(origin) => s.setIntent({ origin })} hint="Select the rotating parts in Model; the rotating region is fitted around them." />
+      <RotorCard s={s} />
+      <QuantityField label="Axial inflow (0 = still fluid, e.g. a hovering drone)" quantity="speed" value={intent.speed} min={0} onChange={(speed) => s.setIntent({ speed })}
+        hint="Air coming towards the rotor along its axis, e.g. the flight speed of a propeller aircraft." />
     </>}
     {intent.kind === 'pipe' && <>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -201,7 +199,7 @@ function ElementsSection({ s }: { s: SetupState }) {
   return <Step n={4} id="rotating-region" title="Elements" description="Wheels, rotors, radiators and openings. Each element is experimental until its benchmark passes.">
     {intent.kind === 'propeller' ? <div className="rounded-xl border border-line bg-surface-2 p-3.5 text-sm">
       <div className="flex items-center gap-2 font-semibold"><RotateCw size={16} className="text-coral" />Rotating region (steady MRF)</div>
-      {rotation?.enabled ? <p className="mt-1 text-ink-2">{intent.patches.length} rotating surfaces · {significant(intent.rpm, 5)} RPM · region radius {significant(rotation.radius, 3)} m, length {significant(rotation.length, 3)} m · blade radius {significant(rotation.blade_radius, 3)} m.</p>
+      {rotation?.enabled ? <p className="mt-1 text-ink-2">{intent.patches.length} rotating surfaces · {significant(Math.abs(intent.rpm), 5)} RPM · region radius {significant(rotation.radius, 3)} m, length {significant(rotation.length, 3)} m · blade radius {significant(rotation.blade_radius, 3)} m.</p>
         : <p className="hint mt-1">Select the rotating parts under Model to fit the region.</p>}
       <p className="hint mt-1">A frozen-rotor (MRF) solution predicts mean thrust and torque at one blade position; blade-passing unsteadiness is not resolved.</p>
     </div> : null}
@@ -225,7 +223,7 @@ function AccuracySection({ s }: { s: SetupState }) {
   const units = usePreferences((u) => u.units);
   const minutes = (m: number) => m < 60 ? `${Math.max(1, Math.round(m))} min` : `${(m / 60).toFixed(1)} h`;
   return <Step n={5} id="mesh-resolution" title="Accuracy" description="Sets the mesh and solver effort. Estimates calibrate from your past runs on this computer." aside={estimate && <span className="chip">{estimate.basis === 'calibrated' ? `Calibrated · ${estimate.samples} runs` : 'Heuristic estimate'}</span>}>
-    <div className="grid gap-3 md:grid-cols-3" role="radiogroup" aria-label="Accuracy">
+    <div className="grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Accuracy">
       {(['basic', 'regular', 'advanced'] as Tier[]).map((tier) => {
         const e = estimate?.tiers.find((t) => t.tier === tier);
         const active = intent.tier === tier;
@@ -251,6 +249,13 @@ function AccuracySection({ s }: { s: SetupState }) {
       {([['base_cells', 'Background cells (longest side)'], ['surface_level', 'Surface refinement level'], ['feature_level', 'Edge refinement level'], ['body_level', 'Body box level'], ['layers', 'Near-wall layers'], ['max_cells', 'Cell budget']] as const).map(([key, label]) =>
         <NumberField key={key} label={label} value={(s.overrides.mesh?.[key] ?? (s.spec as any)?.mesh?.[key]) as number} step={1} onChange={(v) => s.setOverrides({ mesh: { ...(s.overrides.mesh || {}), [key]: v } })} />)}
     </div>}
+    <div className="rounded-xl border border-line bg-surface-2 p-3">
+      <label className="flex items-center justify-between gap-3 text-sm font-semibold text-ink-2">
+        <span className="flex items-center gap-2">Stop when the forces converge <ExperimentalBadge /></span>
+        <Switch checked={!!s.overrides.early_stop} onChange={(early_stop) => s.setOverrides({ early_stop })} label="Stop when the forces converge" />
+      </label>
+      <p className="hint mt-1">Ends the solve once drag and lift settle and averages them over a window, often well before the iteration limit. Off, the solve runs the full {significant((s.spec as any)?.solver?.iterations, 4)} iterations and still reports the converged-window average.</p>
+    </div>
     <p className="hint">Accuracy tiers do not guarantee accuracy; a mesh study (Basic vs Regular vs Advanced) shows how much the result still depends on the mesh.</p>
   </Step>;
 }
@@ -357,24 +362,10 @@ export default function SetupPage({ projectId }: { projectId: string }) {
     if (!patch || !intent) return;
     s.setIntent({ patches: intent.patches.includes(patch.name) ? intent.patches.filter((n) => n !== patch.name) : [...intent.patches, patch.name] });
   };
-  return <div className="mx-auto grid w-full max-w-[1800px] flex-1 gap-4 px-4 py-4 lg:grid-cols-[minmax(24rem,36rem)_1fr]">
-    <div className="min-w-0 space-y-4 pb-24">
-      <div className="flex items-center gap-2">
-        <Link href="/" className="btn-ghost btn-icon" aria-label="Back to simulations"><ArrowLeft size={18} /></Link>
-        <input className="input border-transparent bg-transparent text-lg font-semibold hover:border-line focus:bg-surface" value={s.name} onChange={(e) => s.setName(e.target.value)} aria-label="Simulation name" maxLength={120} />
-        <span className="chip shrink-0">Draft · saved</span>
-      </div>
-      {!geometry || !intent ? <Spinner label="Loading the model" /> : <>
-        <ModelSection s={s} hidden={hidden} setHidden={setHidden} transform={transform} setTransform={setTransform} />
-        <TypeSection s={s} />
-        <FlowSection s={s} />
-        <ElementsSection s={s} />
-        <AccuracySection s={s} />
-        <ReviewSection s={s} />
-      </>}
-    </div>
-    <div className="lg:sticky lg:top-[4.5rem] lg:h-[calc(100vh-5.5rem)]">
-      <ViewerFrame className="h-[60vh] rounded-2xl border border-line lg:h-full" bounds={geometry?.bounds} flow={flowVector} lift={spec?.references.lift_axis}
+  const steps: [string, string][] = [['geometry-diagnostics', 'Model'], ['guided-setup', 'Type'], ['incident-flow', 'Flow'], ['rotating-region', 'Elements'], ['mesh-resolution', 'Accuracy'], ['reference-quantities', 'Launch']];
+  return <div className="flex min-h-[32rem] flex-col lg:h-[calc(100dvh-3.5rem)] lg:flex-row">
+    <div className="relative h-[48vh] shrink-0 lg:h-auto lg:min-w-0 lg:flex-1">
+      <ViewerFrame className="absolute inset-0" bounds={geometry?.bounds} flow={flowVector} lift={spec?.references.lift_axis}
         geometry={s.scene.data ? { scene: s.scene.data, selectedGroups: groupsOf(intent?.patches || []), hiddenGroups: groupsOf(hidden), onPick: pick, matrix,
           highlightGroups: groupsOf([...(s.overrides.elements?.wheels || []).filter((w) => w.rotating).flatMap((w) => w.patches), ...(s.overrides.elements?.rotating_zones || []).flatMap((z) => z.patches)]),
           colors: { neutral: theme.neutral, selected: intent?.kind === 'propeller' ? theme.highlight : theme.selected, highlight: theme.highlight } } : null}
@@ -382,16 +373,40 @@ export default function SetupPage({ projectId }: { projectId: string }) {
           ground: spec.environment?.ground && spec.environment.ground !== 'none' ? { up: [0, 0, 1], offset: Math.max(intent?.ride_height_m || 0, 0) } : null,
           boxes: (spec.elements?.porous || []).map((p: any) => ({ center: p.center, axis: p.axis, up: p.up, size: [p.thickness_m, p.width_m, p.height_m] })) } : null}
         onDimensionLabels={setDims}
-        toolbar={<label className="flex items-center gap-2 rounded-xl border border-line bg-surface/90 px-2.5 py-1.5 text-xs font-semibold shadow-sm backdrop-blur"><input type="checkbox" checked={showDomain} onChange={(e) => setShowDomain(e.target.checked)} />Wind tunnel</label>}>
+        toolbar={<label className="flex items-center gap-2 rounded-xl border border-line bg-surface/95 px-2.5 py-1.5 text-xs font-semibold shadow-sm backdrop-blur"><input type="checkbox" checked={showDomain} onChange={(e) => setShowDomain(e.target.checked)} />Wind tunnel</label>}>
         {dims.filter((d) => d.visible).map((d) => <span key={d.axis} className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-md bg-surface/90 px-1.5 py-0.5 text-[11px] font-semibold text-danger shadow-sm" style={{ left: d.x, top: d.y }}>{formatQuantity('length', d.length, units.length, 3)}</span>)}
-        {geometry && <div className="pointer-events-none absolute bottom-3 right-3 rounded-xl border border-line bg-surface/90 px-3 py-2 text-xs shadow-sm backdrop-blur">
+        {geometry && <div className="pointer-events-none absolute bottom-3 right-3 rounded-xl border border-line bg-surface/95 px-3 py-2 text-xs shadow-sm backdrop-blur">
           <div className="eyebrow mb-0.5">Model dimensions</div>
           {['X', 'Y', 'Z'].map((axis, i) => <div key={axis} className="flex justify-between gap-4 tabular-nums"><span className={['text-axis-x', 'text-axis-y', 'text-axis-z'][i] + ' font-bold'}>{axis}</span><span>{formatQuantity('length', geometry.dimensions[i] * transform.scale, units.length, 4)}</span></div>)}
         </div>}
-        {spec && intent?.kind !== 'pipe' && <div className="pointer-events-none absolute bottom-3 left-28 rounded-lg bg-surface/90 px-2.5 py-1 text-xs font-medium text-ink-2 shadow-sm">
-          {intent?.kind === 'propeller' ? `${significant(intent.rpm, 5)} RPM · axis and spin shown` : `${formatQuantity('speed', spec.flow.speed, units.speed, 3)} · arrows show the incoming flow`}
+        {spec && intent?.kind !== 'pipe' && <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-line bg-surface/95 px-3 py-1 text-xs font-medium text-ink-2 shadow-sm">
+          {intent?.kind === 'propeller' ? `${significant(Math.abs(intent.rpm), 5)} RPM · axis and spin shown` : `${formatQuantity('speed', spec.flow.speed, units.speed, 3)} · arrows show the incoming flow`}
         </div>}
       </ViewerFrame>
+    </div>
+    <div className="flex min-h-0 flex-col border-line bg-bg lg:w-[36rem] lg:shrink-0 lg:border-l xl:w-[38rem]">
+      <div className="space-y-2 border-b border-line bg-surface px-3 py-2.5">
+        <div className="flex items-center gap-2">
+          <Link href="/" className="btn-ghost btn-icon" aria-label="Back to simulations"><ArrowLeft size={18} /></Link>
+          <input className="input border-transparent bg-transparent px-2 py-1 text-base font-semibold hover:border-line focus:bg-surface" value={s.name} onChange={(e) => s.setName(e.target.value)} aria-label="Simulation name" maxLength={120} />
+          <span className="chip shrink-0">Draft · saved</span>
+        </div>
+        <nav className="flex gap-1 overflow-x-auto scrollbar-thin" aria-label="Setup steps">
+          {steps.map(([anchor, label], i) => <button key={anchor} className="flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold text-muted hover:bg-surface-3 hover:text-ink"
+            onClick={() => document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+            <span className="grid h-4 w-4 place-items-center rounded-full bg-accent-soft text-[10px] text-accent-ink">{i + 1}</span>{label}</button>)}
+        </nav>
+      </div>
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3 pb-24 scrollbar-thin sm:p-4">
+        {!geometry || !intent ? <Spinner label="Loading the model" /> : <>
+          <ModelSection s={s} hidden={hidden} setHidden={setHidden} transform={transform} setTransform={setTransform} />
+          <TypeSection s={s} />
+          <FlowSection s={s} />
+          <ElementsSection s={s} />
+          <AccuracySection s={s} />
+          <ReviewSection s={s} />
+        </>}
+      </div>
     </div>
   </div>;
 }

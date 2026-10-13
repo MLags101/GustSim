@@ -1,45 +1,47 @@
 """Sliding-mesh rotor: one cylindrical cyclicAMI interface and solid-body motion.
 
-MRF is not written. The rotor cell zone still exists so the mesh check can see it, and its
-boundary faces become the AMI pair. Experimental; the transient pptc gate has not been run.
+MRF is not written. snappyHexMesh snaps the rotor cylinder as a faceZone (the interface) and a
+cellZone (the rotating cells), so the interface is a true surface of revolution. The worker then
+runs createBaffles to split the faceZone into a cyclicAMI pair and `mergeOrSplitBaffles -split`
+so the rotating and stationary sides no longer share points. The rotor walls move with the mesh
+(movingWallVelocity). Experimental; the transient pptc gate has not been run.
 """
+import json
 import math
-import re
 
-from .foam import vector
-from .foam_elements import zone_cylinder, zone_names
+from .foam import set_patch_field, vector
+from .foam_elements import zone_names
 
 
-def face_actions(spec):
-    """topoSet actions that leave the boundary faces of each rotating cell set."""
-    actions = []
+def interface_name(zone):
+    return zone_names(zone)[2] + 'Interface'
+
+
+def zone_surfaces(spec):
+    """snappyHexMesh refinementSurfaces entries that snap each rotor cylinder as a zone pair."""
+    level = spec.mesh.surface_level
+    out = []
     for zone in spec.rotating_zones():
-        cells, cell_zone = zone_names(zone)[1], zone_names(zone)[2]
-        a, b = zone_cylinder(zone)
-        actions.append(
-            f"{{name {cell_zone}Boundary; type faceSet; action new; source cellToFace; set {cells}; option all;}}")
-        actions.append(
-            f"{{name {cell_zone}Boundary; type faceSet; action delete; source cellToFace; set {cells}; option both;}}")
-        actions.append(
-            f"{{name {cell_zone}Interface; type faceZoneSet; action new; source setToFaceZone; faceSet {cell_zone}Boundary;}}")
-        # point1/point2 are recorded so a reader can see which cylinder the faces came from.
-        actions[-1] += f" // {vector(a)} {vector(b)} r {zone.radius:.6g}"
-    return actions
+        region, _, cell_zone, _ = zone_names(zone)
+        out.append(f'{region} {{ level ({level} {level}); faceZone {interface_name(zone)}; '
+                   f'cellZone {cell_zone}; cellZoneInside inside; }}')
+    return out
 
 
-def prepare(spec, folder):
-    """Baffle dictionary, solid-body motion, and a transient pimpleFoam control file."""
+def prepare(spec, folder, boundaries=None):
+    """Baffle dictionary, solid-body motion, moving rotor walls and the transient control file."""
     from . import transient
     zone = spec.rotating_zones()[0]
     _, _, cell_zone, _ = zone_names(zone)
     omega = zone.rpm * 2 * math.pi / 60
+    interface = interface_name(zone)
     (folder / 'system' / 'createBafflesDict').write_text(
         'FoamFile { version 2.0; format ascii; class dictionary; object createBafflesDict; }\n'
         'internalFacesOnly true;\nbaffles\n{\n'
-        f'    {cell_zone}Interface\n    {{\n        type faceZone;\n        zoneName {cell_zone}Interface;\n'
+        f'    {interface}\n    {{\n        type faceZone;\n        zoneName {interface};\n'
         '        patches\n        {\n'
-        f'            master {{ name amiInner; type cyclicAMI; neighbourPatch amiOuter; transform noOrdering; }}\n'
-        f'            slave {{ name amiOuter; type cyclicAMI; neighbourPatch amiInner; transform noOrdering; }}\n'
+        '            master { name amiInner; type cyclicAMI; neighbourPatch amiOuter; transform noOrdering; lowWeightCorrection 0.2; }\n'
+        '            slave { name amiOuter; type cyclicAMI; neighbourPatch amiInner; transform noOrdering; lowWeightCorrection 0.2; }\n'
         '        }\n    }\n}\n', encoding='utf-8', newline='\n')
     (folder / 'constant' / 'dynamicMeshDict').write_text(
         'FoamFile { version 2.0; format ascii; class dictionary; object dynamicMeshDict; }\n'
@@ -47,17 +49,22 @@ def prepare(spec, folder):
         f'motionSolver solidBody;\ncellZone {cell_zone};\nsolidBodyMotionFunction rotatingMotion;\n'
         f'origin {vector(zone.origin)};\naxis {vector(zone.axis)};\nomega constant {omega:.8g};\n',
         encoding='utf-8', newline='\n')
+    # MRF made the rotor walls rotate implicitly. With a moving mesh they are no-slip walls that
+    # move with the mesh; a stationary fixedValue (0 0 0) would hold the fluid still on the blades.
+    kinds = {b.patch: b.kind for b in (boundaries or spec.boundaries)}
+    for patch in zone.patches:
+        if kinds.get(patch) in ('wall', 'moving_wall', 'rotating_wall'):
+            set_patch_field(folder, 'U', patch, 'type movingWallVelocity; value uniform (0 0 0);')
     times = transient.plan(spec, 0)
-    (folder / 'results').mkdir(parents=True, exist_ok=True)
-    (folder / 'results' / 'transient_plan.json').write_text(__import__('json').dumps(times, indent=2), encoding='utf-8')
+    center = None
+    meta_path = folder / 'geometry.json'
+    if meta_path.is_file():
+        bounds = json.loads(meta_path.read_text(encoding='utf-8')).get('bounds')
+        if bounds:
+            center = [(a + b) / 2 for a, b in zip(*bounds)]
     transient.write_schemes(spec, folder)
     transient.write_solution(spec, folder)
-    control = (folder / 'system' / 'controlDict').read_text(encoding='utf-8')
-    control = re.sub(r'application\s+\w+;', 'application pimpleFoam;', control, count=1)
-    control = re.sub(r'startFrom\s+\w+;', 'startFrom startTime;', control, count=1)
-    control = re.sub(r'endTime\s+[^;]+;', f'endTime {times["end"]:.8g};', control, count=1)
-    control = re.sub(r'deltaT\s+[^;]+;', f'deltaT {times["first_step_s"]:.8g};', control, count=1)
-    if 'adjustTimeStep' not in control:
-        control = control.replace('deltaT', f'adjustTimeStep yes; maxCo {times["max_courant"]:g}; maxDeltaT {times["max_step_s"]:.8g};\ndeltaT', 1)
-    (folder / 'system' / 'controlDict').write_text(control, encoding='utf-8', newline='\n')
+    # The same transient control as a steady-start transient run: adaptive time step, writes at
+    # physical-time intervals (not every 100 steps), averaging window and animation frames.
+    transient.write_control(spec, folder, times, center)
     return {'zone': cell_zone, 'omega_rad_s': omega, 'duration_s': times['duration_s']}

@@ -12,7 +12,8 @@ def save(identifier,body):
     name=body.get('name','New simulation')
     if not isinstance(name,str) or not 1<=len(name)<=120:raise ValueError('Simulation name must contain 1–120 characters')
     if not isinstance(body.get('workspace',{}),dict):raise ValueError('Workspace must be an object')
-    record={'id':identifier,'name':name,'updated':time.time(),'workspace':body.get('workspace',{})}
+    # archived hides a draft from the dashboard; the file is kept, and saving it again unhides it.
+    record={'id':identifier,'name':name,'updated':time.time(),'archived':bool(body.get('archived',False)),'workspace':body.get('workspace',{})}
     data=json.dumps(record)
     if len(data)>2_000_000:raise ValueError('Workspace is too large')
     target=path(identifier);target.parent.mkdir(parents=True,exist_ok=True)

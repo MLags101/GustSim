@@ -8,6 +8,7 @@ import { ViewerFrame } from '../../viewer/ViewerFrame';
 import type { AnchorPosition, ViewLayer } from '../../viewer/Viewport';
 
 const TONE = { warning: 'bad', suggestion: 'warn', info: 'active' } as const;
+const SURFACE_NAMES: Record<string, string> = { Cp: 'Pressure (Cp)', Cf: 'Friction (Cf)', yPlus: 'y+', wall_shear_mag: 'Wall shear', U_near_mag: 'Near-wall velocity', pressure_pa: 'Pressure' };
 
 export function InsightsTab({ run, manifest, insights }: { run: Run; manifest: Manifest | null; insights: Insights | null }) {
   const [active, setActive] = useState<Insight | null>(null);
@@ -25,9 +26,10 @@ export function InsightsTab({ run, manifest, insights }: { run: Run; manifest: M
   if (preset?.layers.includes('friction_lines') && layersById.friction_lines?.url) layers.push({ id: 'friction', url: base(layersById.friction_lines.url), color: [0.12, 0.16, 0.22], pickable: false, ambient: 1 });
   if (preset?.layers.includes('pressure_cloud') && layersById.pressure_cloud?.url) layers.push({ id: 'cloud', url: base(layersById.pressure_cloud.url), color: [0.86, 0.15, 0.2], opacity: 0.5, pickable: false });
   function choose(item: Insight) { setActive(item); setSync({ ...item.view_preset.camera }); }
-  return <div className="grid overflow-hidden rounded-2xl border border-line bg-surface lg:h-[calc(100vh-15.5rem)] lg:min-h-[34rem] lg:grid-cols-[24rem_1fr]">
-    <aside className="max-h-[50vh] overflow-y-auto border-b border-line scrollbar-thin lg:max-h-none lg:border-b-0 lg:border-r">
+  return <div className="absolute inset-0">
+    <aside className="absolute bottom-3 right-3 top-3 z-10 flex w-[min(22rem,calc(100%-1.5rem))] flex-col overflow-hidden rounded-xl border border-line bg-surface/95 shadow-[var(--shadow-card)] backdrop-blur">
       <div className="border-b border-line px-4 py-3"><h3 className="text-sm font-semibold">Flow insights</h3><p className="hint mt-1">{insights.disclaimer}</p></div>
+      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
       {items.length === 0 && <p className="hint p-4">No rule flagged anything noteworthy in this solution.</p>}
       <ol className="divide-y divide-line">{items.map((item, i) => <li key={item.id}>
         <button className={cx('w-full px-4 py-3 text-left hover:bg-surface-2', active?.id === item.id && 'bg-accent-soft')} onClick={() => choose(item)}>
@@ -40,15 +42,16 @@ export function InsightsTab({ run, manifest, insights }: { run: Run; manifest: M
           </div>}
         </button>
       </li>)}</ol>
+      </div>
     </aside>
-    <ViewerFrame className="h-[60vh] lg:h-auto" layers={layers} bounds={manifest?.bounds.model} presets={manifest?.camera_presets} syncCamera={sync}
+    <ViewerFrame className="absolute inset-0" layers={layers} bounds={manifest?.bounds.model} presets={manifest?.camera_presets} syncCamera={sync}
       anchors={items.map((item) => ({ id: item.id, point: item.anchor.point }))} onAnchors={setPositions}>
       {items.map((item, i) => { const p = positions[item.id]; if (!p?.visible) return null;
         return <button key={item.id} onClick={() => choose(item)} aria-label={`Insight ${i + 1}: ${item.title}`}
           className={cx('absolute grid h-7 w-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-2 border-white text-xs font-bold text-white shadow-lg transition-transform hover:scale-110',
             item.severity === 'warning' ? 'bg-danger' : item.severity === 'suggestion' ? 'bg-warning' : 'bg-indigo-brand', active?.id === item.id && 'scale-125 ring-4 ring-accent/40')}
           style={{ left: p.x, top: p.y }}>{i + 1}</button>; })}
-      <div className="pointer-events-none absolute bottom-3 right-3"><Legend colormap={surfaceField === 'Cp' ? 'cool_to_warm' : 'rainbow'} range={range} label={surfaceField === 'Cp' ? 'Pressure (Cp)' : surfaceField} unit={surfaceField === 'Cp' || surfaceField === 'Cf' ? '1' : surfaceField === 'yPlus' ? '1' : 'Pa'} /></div>
+      <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 md:left-[calc(50%-11.5rem)]"><Legend colormap={surfaceField === 'Cp' ? 'cool_to_warm' : 'rainbow'} range={range} label={SURFACE_NAMES[surfaceField] || surfaceField} unit={layersById.surface?.arrays.find((a) => a.name === surfaceField)?.unit} /></div>
     </ViewerFrame>
   </div>;
 }

@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
-import { Archive, ArchiveRestore, FileClock, GitCompareArrows, Layers, LayoutGrid, Plus, Rows3, Search, Tag, Wind } from 'lucide-react';
-import { patch } from '../../api/client';
-import { isActive, useBatches, useProjects, useSimulations } from '../../api/queries';
-import type { Simulation } from '../../api/types';
+import { Archive, ArchiveRestore, FileClock, GitCompareArrows, Layers, LayoutGrid, Plus, Rows3, Search, Tag, Wind, X } from 'lucide-react';
+import { api, patch, put } from '../../api/client';
+import { isActive, qk, useBatches, useProjects, useSimulations } from '../../api/queries';
+import type { Project, Simulation } from '../../api/types';
 import { usePreferences } from '../../state/preferences';
 import { formatQuantity, significant } from '../../lib/units';
 import { evidence, toneClass } from '../../lib/evidence';
@@ -37,7 +37,7 @@ export function KeyMetric({ simulation }: { simulation: Simulation }) {
 
 function Thumbnail({ simulation, className }: { simulation: Simulation; className?: string }) {
   return simulation.thumbnail_url
-    ? <img src={simulation.thumbnail_url} alt="" className={cx('rounded-lg border border-line bg-white object-cover', className)} loading="lazy" />
+    ? <img src={simulation.thumbnail_url} alt="" className={cx('rounded-lg border border-line bg-surface-3 object-cover', className)} loading="lazy" />
     : <div className={cx('grid place-items-center rounded-lg border border-line bg-surface-3 text-muted', className)}><Wind size={18} /></div>;
 }
 
@@ -73,7 +73,15 @@ export function DashboardPage() {
     && (status === 'all' || (status === 'active' ? isActive(s.status) || s.status === 'awaiting_review' : s.status === status))
     && (kind === 'all' || s.setup_summary.use_case === kind) && (!tag || s.tags.includes(tag)));
   const launchedProjects = new Set(all.map((s) => s.project_id));
-  const drafts = (projects.data || []).filter((p) => !launchedProjects.has(p.id)).slice(0, 6);
+  const drafts = (projects.data || []).filter((p) => !launchedProjects.has(p.id) && !p.archived).slice(0, 6);
+  async function hideDraft(id: string) {
+    try {
+      const record = await api<Project>(`/projects/${id}`);
+      await put(`/projects/${id}`, { ...record, archived: true });
+      client.invalidateQueries({ queryKey: qk.projects });
+      toast.info('Draft hidden. It is kept, and opens again from its link.');
+    } catch (e) { toast.error(e); }
+  }
   const chosen = rows.filter((s) => selected.includes(s.id));
   const comparable = chosen.filter((s) => s.results_run_id);
 
@@ -88,14 +96,13 @@ export function DashboardPage() {
   const toggle = (id: string) => setSelected((v) => (v.includes(id) ? v.filter((x) => x !== id) : [...v, id]));
 
   return <div className="flex-1">
-    <section className="hero text-white">
-      <div className="mx-auto flex max-w-[1800px] flex-col gap-4 px-4 py-8 sm:flex-row sm:items-end sm:justify-between sm:py-10">
+    <section className="border-b border-line bg-surface">
+      <div className="mx-auto flex max-w-[1800px] flex-col gap-3 px-4 py-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-sm font-medium text-cyan-200/80">Local aerodynamic simulation · OpenFOAM v2606</p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight text-white sm:text-4xl">Simulations</h1>
-          <p className="mt-2 max-w-xl text-sm text-slate-300">Upload a model, set the flow in a few steps, and get forces, pressure maps, streamlines and a report. Everything runs on this computer.</p>
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Simulations</h1>
+          <p className="mt-1 max-w-2xl text-sm text-muted">Upload a model, set the flow, and get forces, pressure maps, streamlines and a report. Everything runs on this computer with OpenFOAM v2606.</p>
         </div>
-        <button className="btn-primary self-start px-5 py-2.5 text-base sm:self-auto" onClick={() => setCreating(true)} data-tour="new-simulation"><Plus size={18} />New simulation</button>
+        <button className="btn-primary self-start px-4 py-2.5 sm:self-auto" onClick={() => setCreating(true)} data-tour="new-simulation"><Plus size={18} />New simulation</button>
       </div>
     </section>
 
@@ -103,9 +110,12 @@ export function DashboardPage() {
       {drafts.length > 0 && <section>
         <h2 className="eyebrow mb-2">Setups in progress</h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-          {drafts.map((p) => <Link key={p.id} href={`/setup/${p.id}`} className="card flex items-center gap-3 px-3.5 py-3 transition hover:border-accent">
-            <FileClock size={18} className="shrink-0 text-muted" /><span className="min-w-0"><span className="block truncate text-sm font-semibold">{p.name}</span><span className="hint">Edited {relative(p.updated)}</span></span>
-          </Link>)}
+          {drafts.map((p) => <div key={p.id} className="card group relative flex items-center transition hover:border-accent">
+            <Link href={`/setup/${p.id}`} className="flex min-w-0 flex-1 items-center gap-3 px-3.5 py-3">
+              <FileClock size={18} className="shrink-0 text-muted" /><span className="min-w-0"><span className="block truncate text-sm font-semibold">{p.name}</span><span className="hint">Edited {relative(p.updated)}</span></span>
+            </Link>
+            <button className="btn-ghost btn-icon mr-1.5 p-1 text-muted opacity-60 hover:opacity-100 group-hover:opacity-100" aria-label={`Hide draft ${p.name}`} title="Hide this draft (it is kept)" onClick={() => hideDraft(p.id)}><X size={14} /></button>
+          </div>)}
         </div>
       </section>}
 

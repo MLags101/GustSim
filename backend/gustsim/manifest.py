@@ -23,6 +23,7 @@ ARRAYS = {
     'elevation_m': {'unit': 'm', 'label': 'Free-surface elevation', 'colormap': 'cool_to_warm', 'diverging': True},
     'alpha_water': {'unit': '1', 'label': 'Water fraction', 'colormap': 'cool_to_warm', 'default_range': [0, 1]},
     'U_mag': {'unit': 'm/s', 'label': 'Velocity magnitude', 'colormap': 'rainbow'},
+    'U_near_mag': {'unit': 'm/s', 'label': 'Near-wall velocity', 'colormap': 'rainbow'},
     'IntegrationTime': {'unit': 's', 'label': 'Integration time', 'colormap': 'rainbow'},
     'part_index': {'unit': '1', 'label': 'Part', 'categorical': True},
     'patch_index': {'unit': '1', 'label': 'Surface', 'categorical': True},
@@ -33,6 +34,7 @@ DEFINITIONS = {
     'Cp': '(p - p_ref) / q_inf; p_ref is the outlet gauge reference (0), q_inf = ½ ρ U_inf²',
     'Cpt': '(p + ½ρ|U|² - p_ref) / q_inf; 1 in the undisturbed freestream, 0 where all dynamic pressure is lost',
     'Cf': '|τ_w| / q_inf',
+    'U_near_mag': '|U| in the fluid just off the surface: the mean of samples 1.5, 2 and 2.5% of the reference length out along the outward normal of each surface point (the wall itself has zero velocity)',
     'wall_shear_pa': 'Stress of the fluid on the wall, aligned with the near-wall flow (−ρ × OpenFOAM wallShearStress)',
     'pressure_pa': 'ρ × OpenFOAM kinematic pressure, gauge',
     'normals': 'Surface normals point out of the body into the fluid',
@@ -47,10 +49,14 @@ def leaf_parts(meta):
 
 
 def object_patches(spec, meta):
+    from .quality import compiled_boundaries
     names = {p['name'] for p in meta['patches']}
-    walls = [b.patch for b in spec.boundaries if b.patch in names and b.kind in ('wall', 'moving_wall', 'rotating_wall')]
+    # Compiled kinds: an opening on the model is an inlet or outlet, not a wall.
+    wall_kinds = ('wall', 'moving_wall', 'rotating_wall')
+    compiled = {b.patch: b.kind for b in compiled_boundaries(spec)}
+    walls = [p for p, kind in compiled.items() if p in names and kind in wall_kinds]
     if spec.use_case and spec.use_case.force_patches:
-        chosen = [p for p in spec.use_case.force_patches if p in names]
+        chosen = [p for p in spec.use_case.force_patches if p in names and compiled.get(p, 'wall') in wall_kinds]
         return sorted(set(chosen) | set(walls)) if spec.use_case.kind == 'pipe' else sorted(chosen or walls)
     return sorted(walls)
 
@@ -87,10 +93,14 @@ def plan(spec, meta):
     table, patch_parts = part_table(meta, patches)
     drag, lift, side, velocity, speed = flow_frame(spec)
     if spec.mode == 'internal':
-        inlets = [b for b in spec.boundaries if b.kind in ('velocity_inlet', 'flow_inlet', 'pressure_inlet')]
+        from .quality import compiled_boundaries
+        inlets = [b for b in compiled_boundaries(spec) if b.kind in ('velocity_inlet', 'flow_inlet', 'pressure_inlet')]
         if inlets and spec.flow.speed > 0:
             velocity = drag*spec.flow.speed
-    return {'rho': spec.fluid.density, 'u_inf': velocity.tolist(), 'reference_length': spec.references.length,
+    # interFoam writes p in Pa (not kinematic); its coefficients refer to the water density.
+    free_surface = spec.free_surface is not None
+    return {'rho': spec.free_surface.water.density if free_surface else spec.fluid.density,
+            'pressure_is_kinematic': not free_surface, 'u_inf': velocity.tolist(), 'reference_length': spec.references.length,
             'reference_area': spec.references.area, 'drag_axis': drag.tolist(), 'lift_axis': lift.tolist(), 'side_axis': side.tolist(),
             'object_patches': patches, 'patch_parts': patch_parts, 'parts': table,
             'model_bounds': meta['bounds'], 'domain_bounds': [list(spec.domain.minimum), list(spec.domain.maximum)],

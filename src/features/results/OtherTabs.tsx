@@ -1,23 +1,29 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { Download, FileText, RefreshCw } from 'lucide-react';
 import { download, post } from '../../api/client';
-import { useDocument, useRun } from '../../api/queries';
+import { useRun } from '../../api/queries';
 import type { Manifest, Run, Simulation } from '../../api/types';
 import { usePreferences } from '../../state/preferences';
 import { formatQuantity, significant } from '../../lib/units';
 import { Card, EmptyState, EvidenceStrip, Metric, Notice, toast } from '../../ui';
 
-export function ElementsTab({ run }: { run: Run }) {
-  const elements = useDocument<any>(run.id, 'elements');
+/** Whether a run has anything for the Elements section (rotors, wheels, radiators, openings, internal flow). */
+export function hasElements(data: any, run?: Run | null) {
+  if (run?.result?.metrics?.pressure_drop_pa != null) return true;
+  return !!data && ['rotating_zones', 'wheels', 'porous', 'openings'].some((key) => (data[key] ?? []).length > 0);
+}
+
+export function ElementsTab({ run, data }: { run: Run; data: any }) {
   const units = usePreferences((s) => s.units);
-  const data = elements.data;
   const metrics = run.result?.metrics || {};
-  if (!data) return <EmptyState title="No element results">Rotating parts, radiators and openings report here.</EmptyState>;
+  if (!hasElements(data, run)) return <EmptyState title="No elements in this simulation">Rotating parts, wheels, radiators, openings and internal-flow results report here.</EmptyState>;
+  const zones: any[] = data?.rotating_zones ?? [], wheels: any[] = data?.wheels ?? [], porous: any[] = data?.porous ?? [], openings: any[] = data?.openings ?? [];
+  const F = (v: number | null | undefined) => formatQuantity('force', v ?? null, units.force);
   return <div className="space-y-4">
-    {data.rotating_zones.map((zone: any) => <Card key={zone.name} title={`Rotor · ${zone.name}`}>
+    {zones.map((zone: any) => <Card key={zone.name} title={`Rotor · ${zone.name}`}>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric label="Speed" value={formatQuantity('rotation', zone.rpm, units.rotation)} />
-        <Metric label="Thrust" value={formatQuantity('force', zone.thrust_n, units.force)} />
+        <Metric label="Thrust" value={F(zone.thrust_n)} />
         <Metric label="Shaft torque" value={formatQuantity('moment', zone.torque_nm, units.moment)} help="Required driving torque, positive in the commanded direction." />
         <Metric label="Shaft power" value={formatQuantity('power', zone.shaft_power_w, units.power)} />
         <Metric label="Advance ratio J" value={significant(zone.advance_ratio, 3)} />
@@ -25,12 +31,30 @@ export function ElementsTab({ run }: { run: Run }) {
         <Metric label="Efficiency η" value={zone.efficiency != null ? `${(zone.efficiency * 100).toFixed(1)} %` : '—'} help={zone.efficiency == null ? 'Propulsive efficiency is undefined at zero advance speed.' : undefined} />
       </div>
     </Card>)}
-    {data.openings.length > 0 && <Card title="Inlets, outlets and boundaries">
+    {wheels.length > 0 && <Card title="Wheels">
+      <table className="table-clean"><thead><tr><th>Wheel</th><th className="text-right">Radius</th><th className="text-right">Speed</th><th className="text-right">Drag</th><th className="text-right">Lift</th></tr></thead>
+        <tbody>{wheels.map((w: any) => <tr key={w.name}><td className="font-medium">{w.name}</td>
+          <td className="text-right tabular-nums">{formatQuantity('length', w.radius_m, units.length, 3)}</td>
+          <td className="text-right tabular-nums">{w.rotating ? formatQuantity('rotation', w.rpm, units.rotation) : 'static'}</td>
+          <td className="text-right tabular-nums">{F(w.drag_n)}</td><td className="text-right tabular-nums">{F(w.lift_n)}</td></tr>)}</tbody></table>
+      <p className="hint mt-2">Rotating wheels turn at road speed (ω = V / r). Loads are averaged over the converged window and are included in the total.</p>
+    </Card>}
+    {porous.map((zone: any) => <Card key={zone.name} title={`Radiator · ${zone.name}`}>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Metric label="Pressure drop (measured)" value={formatQuantity('pressure', zone.pressure_drop_pa ?? null, units.pressure)} help={data?.notes?.porous} />
+        <Metric label="Curve at this velocity" value={formatQuantity('pressure', zone.curve_pressure_drop_pa ?? null, units.pressure)} help="The fitted Darcy–Forchheimer curve evaluated at the measured mean velocity." />
+        <Metric label="Mean velocity through" value={formatQuantity('speed', zone.mean_velocity_m_s ?? null, units.speed)} />
+        <Metric label="Volume flow" value={formatQuantity('flow', zone.volume_flow_m3_s ?? null, units.flow)} />
+      </div>
+      <p className="hint mt-2">Fitted d = {significant(zone.coefficients?.d, 3)} 1/m², f = {significant(zone.coefficients?.f, 3)} 1/m over {significant(zone.effective_thickness_m, 3)} m{zone.cell_layers != null ? ` (${zone.cell_layers} cell layers)` : ''}.</p>
+      {zone.resolution && <div className="mt-2"><Notice tone="warn">{zone.resolution}.</Notice></div>}
+    </Card>)}
+    {openings.length > 0 && <Card title="Inlets, outlets and boundaries">
       <table className="table-clean"><thead><tr><th>Surface</th><th>Condition</th><th className="text-right">Volume flow</th><th className="text-right">Mass flow</th><th className="text-right">Mean pressure</th></tr></thead>
-        <tbody>{data.openings.map((o: any) => <tr key={o.patch}><td className="font-medium">{o.patch}</td><td>{o.kind.replaceAll('_', ' ')}</td>
+        <tbody>{openings.map((o: any) => <tr key={o.patch}><td className="font-medium">{o.patch}</td><td>{o.kind.replaceAll('_', ' ')}</td>
           <td className="text-right tabular-nums">{formatQuantity('flow', o.volume_flow_m3_s, units.flow)}</td><td className="text-right tabular-nums">{formatQuantity('mass_flow', o.mass_flow_kg_s, units.mass_flow)}</td>
           <td className="text-right tabular-nums">{formatQuantity('pressure', o.mean_pressure_pa, units.pressure)}</td></tr>)}</tbody></table>
-      <p className="hint mt-2">{data.notes?.flux_sign}.</p>
+      <p className="hint mt-2">{data?.notes?.flux_sign}.</p>
     </Card>}
     {metrics.pressure_drop_pa != null && <Card title="Internal flow"><div className="grid gap-3 sm:grid-cols-4">
       <Metric label="Static pressure drop" value={formatQuantity('pressure', metrics.pressure_drop_pa, units.pressure)} />
@@ -78,7 +102,7 @@ export function DownloadsTab({ run, manifest }: { run: Run; manifest: Manifest |
     </Card>
     <Card title="Renders">
       {manifest?.renders.length ? <div className="grid grid-cols-2 gap-2">{manifest.renders.map((r) => <a key={r.id} href={`/api/runs/${run.id}/files/${r.url}`} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-lg border border-line">
-        <img src={`/api/runs/${run.id}/files/${r.url}`} alt={`${r.view} view, ${r.layer}`} className="aspect-[16/10] w-full bg-white object-cover transition group-hover:scale-[1.02]" loading="lazy" />
+        <img src={`/api/runs/${run.id}/files/${r.url}`} alt={`${r.view} view, ${r.layer}`} className="aspect-[16/10] w-full bg-surface-3 object-cover transition group-hover:scale-[1.02]" loading="lazy" />
         <div className="px-2 py-1 text-xs capitalize text-muted">{r.view} · {r.layer === 'cp' ? 'pressure' : 'loss cloud'}</div></a>)}</div>
         : <p className="hint">Renders are produced with the results package.</p>}
     </Card>

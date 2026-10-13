@@ -20,6 +20,9 @@ from .models import SimulationSpec
 
 class Cancelled(Exception):pass
 
+# Result fields recorded when an attempt is queued that later result writes must keep.
+CARRIED_RESULT=('changes',)
+
 # Lane of this process; heartbeats from executor and keepalive threads report against it.
 CURRENT_LANE='compute'
 
@@ -180,10 +183,16 @@ def process_job(job,executor=None):
             return
         if job['kind'] not in ('case','mesh','solve'):raise RuntimeError(f"Unknown job kind {job['kind']}")
         spec=SimulationSpec.model_validate(job['spec'])
+        # A retry attempt is queued with result.changes (the settings it altered). Every later
+        # result write replaces the whole result, so carry those fields forward.
+        carry={k:v for k,v in (job.get('result') or {}).items() if k in CARRIED_RESULT}
+        def save(**fields):
+            if 'result' in fields:fields['result']={**carry,**fields['result']}
+            db.update(identifier,**fields)
         db.update(identifier,stage='preparing')
         with keepalive(identifier): foam.compile_case(spec,root)
         if job['kind']=='case':
-            db.update(identifier,status='completed',stage='completed',result={'case_available':True,'fields_available':False})
+            save(status='completed',stage='completed',result={'case_available':True,'fields_available':False})
             return
         runtime_check()
         # One budget for the attempt. Passing the same limit to every stage let a
@@ -259,8 +268,8 @@ def process_job(job,executor=None):
             for finding in summary['findings']:
                 if finding['code']=='mesh_boundaries':
                     finding['detail']=f'{len(missing)} surfaces disappeared and {len(empty)} have no faces. Increase local body refinement; thin geometry may be smaller than the cells. For tiny CAD face patches, prepare one surface per component and reassign conditions.'
-        mesh_pass='Mesh OK.' in mesh_log and boundary_ok and rotation_ok
-        db.update(identifier,result={'case_available':True,'mesh_available':preview_ok,'fields_available':False,'mesh_check':'passed' if mesh_pass else 'failed','cell_count':int(cell_match.group(1)) if cell_match else None,'mesh_summary':summary})
+        mesh_pass=workflow.quality_limits(mesh_log)[0] and boundary_ok and rotation_ok
+        save(result={'case_available':True,'mesh_available':preview_ok,'fields_available':False,'mesh_check':'passed' if mesh_pass else 'failed','cell_count':int(cell_match.group(1)) if cell_match else None,'mesh_summary':summary})
         if not mesh_pass:raise RuntimeError('Mesh quality, boundary, or rotor-zone check failed; solving was blocked. Inspect the mesh summary and logs.')
         if not reused and cell_match:
             from .estimate import record_mesh
@@ -285,7 +294,7 @@ def process_job(job,executor=None):
                 result['amr_delta_cd']=change
                 result['findings'].append({'code':'adaptive_mesh','status':'info','detail':f'Adaptive cycle changed Cd by {change*100:.2f}% relative to the previous mesh. This is not a mesh-study acceptance.'})
         result.update(case_available=True,mesh_available=preview_ok,fields_available=False,mesh_summary=summary,mesh_check='passed')
-        db.update(identifier,result=result)
+        save(result=result)
         # Execution and field extraction are distinct states: the solve has already
         # converged and its measurements are recorded, so a ParaView failure must not
         # retract them. It becomes an extraction finding on a completed run.
@@ -309,7 +318,7 @@ def process_job(job,executor=None):
                 'message':'Field extraction failed; the solve is preserved: '+str(e)})
         (root/'results').mkdir(parents=True,exist_ok=True)
         (root/'results/quality.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
-        db.update(identifier,status='completed',stage='completed',result=result)
+        save(status='completed',stage='completed',result=result)
         if v2:
             # The results package (layers, renders, forces, insights) runs on the post lane so
             # the compute lane is free for the next solve.
@@ -394,11 +403,14 @@ def solve(identifier,executor,root,spec,timeout):
         executor.run(identifier,command,root,stage,timeout(),monitor=monitor)
     if sliding:
         executor.run(identifier,['createBaffles','-overwrite'],root,'baffles',timeout())
+        # The baffle sides still share their edge points; split them so the rotor can slide.
+        executor.run(identifier,['mergeOrSplitBaffles','-split','-overwrite'],root,'split_baffles',timeout())
         notes.append({'code':'sliding_mesh','status':'info','detail':'Rotor interface split into a cyclicAMI pair. This is experimental; the transient propeller gate has not been run.'})
     if spec.mesh.adaptive_source is not None:
         origin=config.DATA/'runs'/spec.mesh.adaptive_source.run_id
         try:
-            executor.run(identifier,['mapFields','-sourceTime','latestTime',str(origin)],root,'map_fields',timeout())
+            # Same domain and patch names on both meshes: consistent mapping needs no mapFieldsDict.
+            executor.run(identifier,['mapFields','-consistent','-sourceTime','latestTime',str(origin)],root,'map_fields',timeout())
             notes.append({'code':'map_fields','status':'info','detail':'Velocity and pressure mapped from the previous adaptive cycle'})
         except Cancelled:
             raise
@@ -434,10 +446,17 @@ def solve(identifier,executor,root,spec,timeout):
         if v2 and spec.solver.numerics=='robust':
             first=min(200,end)
             foam.write_schemes(spec,root,robust_start=True);foam.restart_control(spec,root,first)
-            solver('solve_startup')
+            # The first-order stage only starts the flow: a convergence (or runaway) verdict on
+            # it must not skip the second-order solve, so stop requests are held until it ends
+            # and detection restarts on the second-order iterations.
+            if monitor:monitor.hold=True
+            try:solver('solve_startup')
+            finally:
+                if monitor:monitor.hold=False
+            if monitor:monitor.restart_detection()
             foam.write_schemes(spec,root);foam.restart_control(spec,root,end)
             notes.append({'code':'numerics_profile','status':'info','detail':f'Robust startup: first-order momentum for {first} iterations, then second order'})
-            if not (monitor and monitor.stop_requested):solver('solve')
+            solver('solve')
         else:solver('solve')
     def latest_time():
         folder=root/'processor0' if parallel else root

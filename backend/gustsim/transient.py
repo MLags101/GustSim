@@ -77,6 +77,8 @@ def write_solution(spec, folder):
     write(folder, 'system/fvSolution',
           'solvers { p { solver GAMG; tolerance 1e-7; relTol 0.01; smoother GaussSeidel; } '
           'pFinal { solver GAMG; tolerance 1e-7; relTol 0; smoother GaussSeidel; } '
+          # A moving (sliding) mesh corrects the mesh flux with correctPhi, which solves pcorr.
+          '"pcorr.*" { solver GAMG; tolerance 1e-5; relTol 0; smoother GaussSeidel; } '
           '"(U|k|omega)" { solver smoothSolver; smoother symGaussSeidel; tolerance 1e-8; relTol 0.1; } '
           '"(U|k|omega)Final" { solver smoothSolver; smoother symGaussSeidel; tolerance 1e-8; relTol 0; } }\n'
           'PIMPLE { nOuterCorrectors 1; nCorrectors 2; nNonOrthogonalCorrectors 1; consistent no; }\n'

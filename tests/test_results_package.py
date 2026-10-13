@@ -72,6 +72,9 @@ def test_package_builds_layers_documents_and_manifest(solved):
     surface = next(l for l in out['layers'] if l['id'] == 'surface')
     names = {a['name'] for a in surface['arrays']}
     assert {'Cp', 'pressure_pa', 'wall_shear_pa', 'Cf', 'part_index'} <= names
+    # Near-wall velocity is sampled in the fluid off the wall (the wall itself does not move).
+    near = next(a for a in surface['arrays'] if a['name'] == 'U_near_mag')
+    assert near['unit'] == 'm/s' and near['range'][1] > 0 and surface['near_wall_offset_m'] > 0
     cp = next(a for a in surface['arrays'] if a['name'] == 'Cp')
     assert cp['unit'] == '1' and cp['colormap'] == 'cool_to_warm'
     assert surface['url'].startswith('results/package/') and (case/surface['url']).is_file()

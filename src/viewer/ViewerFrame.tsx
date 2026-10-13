@@ -43,11 +43,12 @@ export const ViewerFrame = forwardRef<ViewportHandle, ViewportProps & {
     else if (event.key === 'f' || event.key === 'F') { event.preventDefault(); setRequest({ fit: true, nonce: Date.now() }); }
     else if (event.key === 's' || event.key === 'S') { event.preventDefault(); void screenshot(); }
   }
-  return <div className={cx('dotted-grid relative overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-accent', className)} tabIndex={0} onKeyDown={onKey}
+  // A caller that positions the frame (absolute) must not be overridden by the default relative.
+  return <div className={cx('dotted-grid overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-accent', !/\b(absolute|fixed)\b/.test(className || '') && 'relative', className)} tabIndex={0} onKeyDown={onKey}
     aria-keyshortcuts="1 2 3 4 5 6 7 f s" aria-label="3D view. When focused: 1 isometric, 2 front, 3 rear, 4 left, 5 right, 6 top, 7 bottom, F fits, S saves a screenshot.">
     <Viewport ref={setRef} background={theme.background} cameraRequest={request} initialCamera={presets?.iso || (bounds ? flowCamera('iso', bounds, flow, lift) : null)} {...viewport} />
     <div className="pointer-events-none absolute inset-x-3 top-3 flex flex-wrap items-start justify-between gap-2">
-      <div className="pointer-events-auto flex flex-wrap gap-1 rounded-xl border border-line bg-surface/90 p-1 shadow-sm backdrop-blur" role="toolbar" aria-label="Camera views" data-tour="camera-presets">
+      <div className="pointer-events-auto flex flex-wrap gap-0.5 rounded-xl border border-line bg-surface/95 p-1 shadow-sm backdrop-blur" role="toolbar" aria-label="Camera views" data-tour="camera-presets">
         {(Object.keys(PRESET_LABELS) as PresetName[]).map((name) => <button key={name} className={cx('rounded-lg px-2 py-1 text-xs font-semibold', active === name ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:text-ink')} onClick={() => preset(name)}>{PRESET_LABELS[name]}</button>)}
         <button className="rounded-lg px-2 py-1 text-muted hover:text-ink" title="Fit to view" aria-label="Fit to view" onClick={() => setRequest({ fit: true, nonce: Date.now() })}><Maximize2 size={14} /></button>
         <button className="rounded-lg px-2 py-1 text-muted hover:text-ink" title="Save a screenshot (PNG)" aria-label="Save a screenshot" onClick={screenshot}><Camera size={14} /></button>
@@ -55,7 +56,7 @@ export const ViewerFrame = forwardRef<ViewportHandle, ViewportProps & {
       {toolbar && <div className="pointer-events-auto">{toolbar}</div>}
     </div>
     {children}
-    {loading && <div className="pointer-events-none absolute bottom-3 right-3 rounded-lg bg-surface/90 px-3 py-1.5 shadow-sm"><Spinner label="Loading view" /></div>}
-    {error && <div className="absolute inset-x-3 bottom-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger" role="alert">{error}</div>}
+    {loading && <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full border border-line bg-surface/95 px-3 py-1 shadow-sm"><Spinner label="Loading view" /></div>}
+    {error && <div className="absolute left-1/2 top-14 w-[min(32rem,calc(100%-1.5rem))] -translate-x-1/2 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-sm text-danger shadow-sm" role="alert">{error}</div>}
   </div>;
 });

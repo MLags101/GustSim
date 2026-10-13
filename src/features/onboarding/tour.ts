@@ -16,9 +16,17 @@ const STEPS: DriveStep[] = [
 export function startTour(force = false) {
   const { tourCompleted, setTourCompleted } = usePreferences.getState();
   if (tourCompleted && !force) return;
+  // Never cover an open dialog (e.g. New simulation) or start on a page the user is leaving.
+  if (!force && document.querySelector('[role="dialog"]')) return;
   const steps = STEPS.filter((s) => !s.element || document.querySelector(s.element as string));
   if (!steps.length) return;
   const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   const tour = driver({ showProgress: true, animate: !reduce, steps, onDestroyed: () => setTourCompleted(true), nextBtnText: 'Next', prevBtnText: 'Back', doneBtnText: 'Done' });
+  // The tour belongs to the page it started on: leaving the page ends it, so its overlay never
+  // blocks the next page.
+  const page = window.location.hash;
+  const leave = () => { if (tour.isActive()) tour.destroy(); };
+  window.addEventListener('hashchange', leave, { once: true });
   tour.drive();
+  if (window.location.hash !== page) leave();
 }

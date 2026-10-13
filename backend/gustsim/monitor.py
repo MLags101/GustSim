@@ -75,13 +75,32 @@ def segments(case, pattern):
         yield path, tail.rows()
 
 
+def rotor_monitored(spec):
+    """True when the convergence signals include the rotor's thrust and torque."""
+    return bool(spec.rotation.enabled)
+
+
+def rotor_loads_by_iteration(case, spec):
+    """{iteration: {'thrust_n', 'torque_nm', ...}} from the rotorLoads force and moment tables."""
+    if not rotor_monitored(spec):
+        return {}
+    from .quality import force_history, rotor_load
+    out = {}
+    for row in force_history(case, 'rotorLoads'):
+        load = rotor_load(row, spec)
+        if load is not None:
+            out[row['iteration']] = load
+    return out
+
+
 def history(case, spec, after=-1.0, limit=5000):
     """Full residual and load histories from the solver's own tables (all restart segments)."""
     forces, residuals = [], []
+    rotor = rotor_loads_by_iteration(case, spec)
     for _, rows in segments(case, 'postProcessing/loads/*/force.dat'):
         for values, _ in rows:
             if len(values) >= 4 and values[0] > after:
-                forces.append({'iteration': values[0], **monitored(spec, {'force': values[1:4]})})
+                forces.append({'iteration': values[0], **monitored(spec, {'force': values[1:4]}, rotor.get(values[0]))})
     for path, rows in segments(case, 'postProcessing/residuals/*/solverInfo.dat'):
         columns = residual_columns(path)
         residuals += [residual_row(columns, values, line) for values, line in rows if values[0] > after]
@@ -101,17 +120,58 @@ class SolveMonitor:
         self.pending_forces, self.pending_residuals = [], []
         self.columns = None
         self.stop_requested = False
+        # While held (the first-order startup stage of the robust profile) loads are recorded but
+        # no stop is requested: the reported solution must come from the final numerics.
+        self.hold = False
+        # Propellers converge on thrust and torque, read from the rotorLoads tables.
+        self.use_rotor = rotor_monitored(spec)
+        self.rotor_force = Tail(case, 'postProcessing/rotorLoads/*/force.dat')
+        self.rotor_moment = Tail(case, 'postProcessing/rotorLoads/*/moment.dat')
+        self.rotor_forces, self.rotor_moments, self.waiting = {}, {}, []
 
+    def restart_detection(self):
+        """Start convergence detection afresh (after the robust startup stage)."""
+        self.detector = Detector(self.spec.convergence, floors(self.spec), cap=self.detector.cap)
+
+    def _ready_rows(self):
+        """(iteration, force, rotor load or None) rows whose rotor loads have been read too."""
+        for values, _ in self.forces.rows():
+            if len(values) >= 4:
+                self.waiting.append((values[0], values[1:4]))
+        if not self.use_rotor:
+            ready = [(i, f, None) for i, f in self.waiting]
+            self.waiting = []
+            return ready
+        for values, _ in self.rotor_force.rows():
+            if len(values) >= 4:
+                self.rotor_forces[values[0]] = values[1:4]
+        for values, _ in self.rotor_moment.rows():
+            if len(values) >= 4:
+                self.rotor_moments[values[0]] = values[1:4]
+        if not self.rotor_forces and len(self.waiting) > 50:
+            # No rotor table appeared: fall back to the total load rather than stall detection.
+            self.use_rotor = False
+            return self._ready_rows()
+        from .quality import rotor_load
+        ready, keep = [], []
+        latest = min(max(self.rotor_forces, default=-1), max(self.rotor_moments, default=-1))
+        for iteration, force in self.waiting:
+            if iteration in self.rotor_forces and iteration in self.rotor_moments:
+                load = rotor_load({'iteration': iteration, 'force': self.rotor_forces.pop(iteration),
+                                   'moment': self.rotor_moments.pop(iteration)}, self.spec)
+                if load is not None:
+                    ready.append((iteration, force, load))
+            elif iteration > latest:
+                keep.append((iteration, force))
+        self.waiting = keep[-5000:]
+        return ready
 
     def __call__(self, elapsed=None):
-        for values, _ in self.forces.rows():
-            if len(values) < 4:
-                continue
-            row = {'iteration': values[0], 'force': values[1:4]}
-            signals = monitored(self.spec, row)
-            self.pending_forces.append({'iteration': values[0], **{k: round(v, 9) for k, v in signals.items()}})
+        for iteration, force, rotor in self._ready_rows():
+            signals = monitored(self.spec, {'iteration': iteration, 'force': force}, rotor)
+            self.pending_forces.append({'iteration': iteration, **{k: round(v, 9) for k, v in signals.items()}})
             if self.enabled:
-                self.detector.add(values[0], signals)
+                self.detector.add(iteration, signals)
         for values, line in self.residuals.rows():
             if self.columns is None:
                 self.columns = residual_columns(self.residuals.path)
@@ -120,7 +180,7 @@ class SolveMonitor:
         if now - self.last_publish >= self.publish_every:
             self.publish()
             self.last_publish = now
-        if self.enabled and self.detector.should_stop and not self.stop_requested:
+        if self.enabled and not self.hold and self.detector.should_stop and not self.stop_requested:
             self.stop_requested = True
             self.publish()
             return 'stop'
@@ -165,8 +225,21 @@ def assess(case, spec, history):
     Used for every v2 run (with or without early stop) so the averaging window and verdict
     are always available; it never stops anything."""
     detector = Detector(spec.convergence, floors(spec), cap=float('inf'))
+    rotor = rotor_loads_by_iteration(case, spec)
     for row in history:
-        detector.add(row['iteration'], monitored(spec, row))
+        load = rotor.get(row['iteration'])
+        if rotor and load is None:
+            continue  # keep one consistent signal set: thrust and torque need the rotor row
+        detector.add(row['iteration'], monitored(spec, row, load))
+    # A solve that ended on its own residual targets is judged on its loads even when it was
+    # shorter than the detector's minimum history (fast, attached-flow cases).
+    log = case/'logs'/'solve.log'
+    try:
+        residual_stop = log.is_file() and 'solution converged' in log.read_text(errors='replace')[-20000:].lower()
+    except OSError:
+        residual_stop = False
+    if residual_stop and detector.state != 'converged':
+        detector.accept_residual_stop()
     if detector.state == 'searching':
         detector.state = 'iteration_limit'
     return detector

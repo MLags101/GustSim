@@ -10,6 +10,8 @@ separately from residual convergence and never implies accuracy.
 import numpy as np
 
 STATES = ('searching', 'averaging', 'converged', 'runaway', 'iteration_limit')
+# Force components normalised together (see Detector._scale).
+FORCE_COMPONENTS = ('drag_n', 'lift_n', 'side_n')
 
 
 class Detector:
@@ -28,6 +30,7 @@ class Detector:
         self.stop_at = None
         self.last_check = 0
         self.signals = {}
+        self.residual_stop = False
 
     def add(self, iteration, signals):
         """Append one sample; signals: {name: value}. Returns the state after any check."""
@@ -49,8 +52,17 @@ class Detector:
         return self.state
 
     def _scale(self, name, values):
+        """Normalisation for one signal. Force components share one scale: the largest mean
+        component (or the q·A floor). Lift of a symmetric bluff body averages ~0 and oscillates
+        with vortex shedding; judged against its own near-zero mean that looks like a runaway,
+        judged against the load the body carries it is a small, averageable fluctuation."""
         half = values[len(values)//2:]
-        return max(abs(float(np.mean(half))), self.floor.get(name, 0.0), 1e-12)
+        scale = max(abs(float(np.mean(half))), self.floor.get(name, 0.0), 1e-12)
+        if name in FORCE_COMPONENTS:
+            for other, series in self.values.items():
+                if other in FORCE_COMPONENTS and len(series) >= 2:
+                    scale = max(scale, abs(float(np.mean(series[len(series)//2:]))))
+        return scale
 
     def _window(self):
         n = len(self.iterations)
@@ -62,14 +74,19 @@ class Detector:
         runaway = False
         for name, values in self.values.items():
             y = np.asarray(values, dtype=float)
-            if len(y) < window or not np.isfinite(y[-window:]).all():
+            if len(y) < window:
                 drift_ok = False
+                continue
+            if not np.isfinite(y[-window:]).all():
+                drift_ok = False
+                runaway = True  # NaN/inf loads: the solution has diverged
                 continue
             scale = self._scale(name, y)
             w = y[-window:]/scale
-            k = np.arange(window, dtype=float)
-            slope = np.polyfit(k, w, 1)[0]
-            drift = abs(slope)*window
+            # Drift is the spread of the means of the window's three thirds: a steady signal and
+            # one oscillating about a settled mean (unsteady wake) both pass, a trend does not.
+            thirds = [float(np.mean(part)) for part in np.array_split(w, 3)]
+            drift = max(thirds) - min(thirds)
             band = float(np.max(np.abs(w - w.mean())))
             self.signals[name] = {'scale': scale, 'drift': float(drift), 'band': band,
                                   'mean': float(np.mean(y[-window:])), 'std': float(np.std(y[-window:])),
@@ -108,6 +125,36 @@ class Detector:
                 return final and length >= self.s.averaging_min
         return True
 
+    def accept_residual_stop(self):
+        """The solver ended itself on its residual targets, possibly before this detector had
+        the history it needs (min_iterations). Judge the loads over the tail instead: when every
+        monitored load is steady there (same drift test), the run is converged on both counts and
+        the tail is the averaging window. Returns True when accepted."""
+        n = len(self.iterations)
+        if self.state in ('converged', 'runaway') or n < 20:
+            return self.state == 'converged'
+        window = max(10, n//3)
+        signals = {}
+        for name, values in self.values.items():
+            y = np.asarray(values, dtype=float)
+            tail = y[-window:]
+            if len(tail) < window or not np.isfinite(tail).all():
+                return False
+            scale = self._scale(name, y)
+            w = tail/scale
+            thirds = [float(np.mean(part)) for part in np.array_split(w, 3)]
+            drift = max(thirds) - min(thirds)
+            if drift > self.s.tolerance:
+                return False
+            signals[name] = {'scale': scale, 'drift': float(drift), 'band': float(np.max(np.abs(w - w.mean()))),
+                             'mean': float(np.mean(tail)), 'std': float(np.std(tail)), 'normalised_std': float(np.std(w))}
+        self.signals.update(signals)
+        self.state = 'converged'
+        self.detected_at = self.iterations[-window]
+        self.stop_at = self.iterations[-1]
+        self.residual_stop = True
+        return True
+
     def _index(self, iteration):
         if iteration is None:
             return 0
@@ -129,9 +176,17 @@ class Detector:
         if window:
             start = self._index(window[0])
             averaging = {'start': window[0], 'end': window[1], 'samples': len(self.iterations) - start}
-        if self.state == 'converged':
+        if self.state == 'converged' and getattr(self, 'residual_stop', False):
+            message = (f'The solver met its residual targets after {int(window[1])} iterations and the monitored loads '
+                       f'were steady over the last {averaging["samples"]} of them; averaged over iterations '
+                       f'{int(window[0])}–{int(window[1])}.')
+        elif self.state == 'converged':
             message = (f'Convergence detected after {int(self.detected_at)} iterations; averaged over iterations '
                        f'{int(window[0])}–{int(window[1])}.')
+            unsteady = [n for n, s in self.signals.items() if s.get('normalised_std', 0) > 0.02]
+            if unsteady:
+                message += (' The loads oscillate about a settled mean (' + ', '.join(n.replace('_n', '') for n in unsteady) +
+                            '), typical of an unsteady wake; the reported values are window averages.')
         elif self.state == 'runaway':
             message = 'Monitored loads grew or oscillated beyond the stability limit; the solve was stopped for review.'
         elif self.state == 'averaging':

@@ -91,13 +91,15 @@ COMPACT = ("json_remove(result,'$.history','$.residuals','$.rotor_history','$.co
            "'$.rotor_load_history') AS result")
 
 
-def runs(compact=False, kinds=None, simulation_id=None, limit=200):
+def runs(compact=False, kinds=None, simulation_id=None, limit=200, parent_id=None):
     columns = 'id,created,updated,status,stage,kind,spec,study_id,parent_id,cancel,error,lane,simulation_id,attempt,retry_of,retry_reason,started,finished,configuration_id,' + COMPACT if compact else '*'
     where, params = [], []
     if kinds:
         where.append('kind IN (' + ','.join('?' * len(kinds)) + ')'); params += list(kinds)
     if simulation_id:
         where.append('simulation_id=?'); params.append(simulation_id)
+    if parent_id:
+        where.append('parent_id=?'); params.append(parent_id)
     query = f"SELECT {columns} FROM runs" + (' WHERE ' + ' AND '.join(where) if where else '') + ' ORDER BY created DESC LIMIT ?'
     with connection() as c:
         return [decode(r) for r in c.execute(query, (*params, limit))]

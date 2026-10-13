@@ -169,6 +169,9 @@ def breakdown(case, spec, meta=None, frontal_area=None):
                     'cl_corrected': coefficients['cl']*(1-ratio)**2 if coefficients['cl'] is not None else None}
     parts = []
     total_drag = 0.0
+    # Part groups are wall loads over the measured surfaces; the total also carries the porous
+    # (radiator) body force in its own column. Shares and the sum check use the wall drag.
+    wall_drag = float((mean['total'] - mean['porous'])@wind['drag'])
     groups = []
     path = case/'force_groups.json'
     if path.is_file():
@@ -190,14 +193,16 @@ def breakdown(case, spec, meta=None, frontal_area=None):
                           'pressure_drag_n': float(group_mean['pressure']@wind['drag']), 'viscous_drag_n': float(group_mean['viscous']@wind['drag'])},
                  'object': project(group_mean['total'], obj),
                  'cd_contribution': w['drag']/(q*area) if q > 0 and confirmed else None,
-                 'share_of_drag': w['drag']/drag if abs(drag) > 1e-12 else None}
+                 'share_of_drag': w['drag']/wall_drag if abs(wall_drag) > 1e-12 else None}
         total_drag += w['drag']
         parts.append(entry)
     parts_check = None
     if parts:
-        residual = abs(total_drag - drag)/max(abs(drag), 1e-12)
-        parts_check = {'residual_fraction': residual, 'ok': residual <= 0.005,
-                       'note': 'Parts not assigned to a group are absent; the sum then differs from the total.'}
+        residual = abs(total_drag - wall_drag)/max(abs(wall_drag), 1e-12)
+        parts_check = {'residual_fraction': residual, 'ok': residual <= 0.005, 'reference': 'wall_drag_n',
+                       'wall_drag_n': wall_drag,
+                       'note': 'Parts are compared with the wall drag of the measured surfaces (porous resistance excluded). '
+                               'Parts not assigned to a group are absent; the sum then differs from the total.'}
     curve = None
     if speed > 0 and coefficients['cda_m2'] is not None:
         limit = 0.3*spec.fluid.speed_of_sound if spec.fluid.name == 'air' else float('inf')

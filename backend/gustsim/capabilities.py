@@ -47,8 +47,10 @@ def probe_runtime(which=shutil.which):
     not sufficient: function-object keywords are confirmed by scripts/probe_runtime.py."""
     programs = sorted({p for c in CAPABILITIES.values() for p in c['probe']})
     found = {p: bool(which(p)) for p in programs}
+    from .hardware import report
     return {'programs': found,
-            'available': {k: all(found[p] for p in c['probe']) for k, c in CAPABILITIES.items()}}
+            'available': {k: all(found[p] for p in c['probe']) for k, c in CAPABILITIES.items()},
+            'hardware': report()}
 
 
 def capabilities_used(spec):
@@ -89,9 +91,11 @@ def capabilities_used(spec):
 
 
 def experimental_used(spec):
-    """Experimental physics in use. Numerics (early stop, AMR) carry their own maturity in
-    the status block but are run control, not a physics claim."""
-    return [c for c in capabilities_used(spec) if CAPABILITIES[c]['maturity'] == 'experimental' and CAPABILITIES[c].get('kind', 'physics') == 'physics']
+    """Experimental capabilities in use, physics and numerics alike. Force-based early stopping
+    and adaptive refinement change which solution is reported, so until their gates pass they
+    need the same acknowledgement and labels as experimental physics. Outputs (the qualitative
+    noise estimate, video) never make a run experimental."""
+    return [c for c in capabilities_used(spec) if CAPABILITIES[c]['maturity'] == 'experimental' and CAPABILITIES[c].get('kind', 'physics') != 'output']
 
 
 def report(worker_capabilities=None):

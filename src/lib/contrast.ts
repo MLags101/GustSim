@@ -21,9 +21,10 @@ export function contrast(foreground: string, background: string) {
 
 /** Pairs that carry body or button text. Each must clear WCAG AA for normal text (4.5:1). */
 export const TEXT_PAIRS: [string, string, string][] = [
-  ['Ink on page', '#0f172a', '#f4f7fa'],
-  ['Secondary ink on white', '#334155', '#ffffff'],
-  ['Muted on white', '#64748b', '#ffffff'],
+  ['Ink on page', '#222529', '#f5f6f8'],
+  ['Secondary ink on white', '#3d434a', '#ffffff'],
+  ['Muted on white', '#646b76', '#ffffff'],
+  ['Muted on page', '#646b76', '#f5f6f8'],
   ['Primary button', '#ffffff', '#0369a1'],
   ['Accent ink on soft', '#0369a1', '#e0f2fe'],
   ['Dark ink on page', '#e2e8f0', '#0b1120'],

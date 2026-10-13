@@ -25,6 +25,12 @@ test('results: flow, forces, insights, downloads', async ({ page, request }) => 
   await expect(page.getByText('Experimental validation').first()).toBeVisible();
   await expect(page.getByText('Pressure (Cp)').last()).toBeVisible();
   await expect.poll(() => canvasHasPixels(page), { timeout: 15000 }).toBe(true);
+  // Hover probe: the GPU pick must return a value, a position and the part under the cursor.
+  const box = (await page.locator('canvas').first().boundingBox())!;
+  await expect.poll(async () => {
+    await page.mouse.move(box.x + box.width * 0.55, box.y + box.height * 0.5, { steps: 3 });
+    return page.getByText(/^\(.+\) m$/).count();
+  }, { timeout: 15000 }).toBeGreaterThan(0);
   await page.getByRole('tab', { name: 'Forces' }).click();
   await expect(page.getByText('Drag coefficient in context')).toBeVisible();
   await page.getByRole('tab', { name: /Insights/ }).click();
@@ -68,7 +74,7 @@ test('new simulation from a sample opens the setup with checks', async ({ page }
   await page.goto('/#/');
   await page.getByRole('button', { name: 'New simulation' }).first().click();
   await page.getByRole('radio', { name: /Samples/ }).click();
-  await page.getByRole('button', { name: /Sphere/ }).click();
+  await page.getByRole('button', { name: /streamlined/i }).click();
   await expect(page.getByRole('heading', { name: 'Model' })).toBeVisible({ timeout: 20000 });
   await expect(page.getByText('Closed surface', { exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Accuracy' })).toBeVisible();
@@ -89,7 +95,7 @@ test('setup elements: ground, ride height and a fitted radiator', async ({ page 
   await page.goto('/#/');
   await page.getByRole('button', { name: 'New simulation' }).first().click();
   await page.getByRole('radio', { name: /Samples/ }).click();
-  await page.getByRole('button', { name: /Sphere/ }).click();
+  await page.getByRole('button', { name: /streamlined/i }).click();
   await expect(page.getByRole('heading', { name: 'Model' })).toBeVisible({ timeout: 20000 });
   await expect(page.getByRole('spinbutton', { name: /Ride height/ })).toHaveCount(0);
   await page.getByRole('radio', { name: 'Moving ground' }).click();

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api, post, put } from '../../api/client';
-import { qk, useEstimate, useGeometry, useProject, useScene, useValidation } from '../../api/queries';
+import { qk, useEstimate, useGeometry, useHealth, useProject, useScene, useValidation } from '../../api/queries';
 import type { Geometry, SceneData, Spec, Vec3 } from '../../api/types';
 import { configurationKey } from '../../lib/configurationKey';
 
@@ -13,6 +13,8 @@ export interface Intent {
   flow_rate: number; inlet_pressure_pa: number; outlet_pressure_pa: number; patches: string[];
   origin: Vec3; axis: Vec3; rpm: number; tier: Tier;
   ground?: 'none' | 'static' | 'moving' | 'slip'; ride_height_m?: number; waterline_z?: number;
+  /** 'auto': axis and centre follow detection from the selected rotating parts; 'manual': user-set. */
+  axis_mode?: 'auto' | 'manual';
 }
 export interface WheelElement { name: string; patches: string[]; center: Vec3; axis: Vec3; radius: number; rotating: boolean }
 export interface PorousElement { name: string; center: Vec3; axis: Vec3; up: Vec3; width_m: number; height_m: number; thickness_m: number; curve: [[number, number], [number, number]]; transverse_factor?: number }
@@ -27,6 +29,8 @@ export interface Overrides {
   mesh?: { base_cells?: number; surface_level?: number; feature_level?: number; layers?: number; max_cells?: number; body_level?: number };
   elements?: ElementsDraft; front_axle?: Vec3 | null; rear_axle?: Vec3 | null; design?: DesignDraft;
   time?: TimeDraft;
+  /** Experimental: stop the solve once the forces have converged (spec.convergence.enabled). */
+  early_stop?: boolean;
 }
 /** Transient settings (spec.time). Durations are in domain flow-throughs unless duration_s is set. */
 export interface TimeDraft { mode: 'steady' | 'transient'; flow_throughs?: number; frames?: number; average_after_fraction?: number; max_courant?: number; sliding_mesh?: boolean }
@@ -64,11 +68,13 @@ export function defaultIntent(geometry: Geometry, scene?: SceneData): Intent {
     const sorted = names.filter((n) => centroids[n]).sort((a, b) => centroids[a][axis] - centroids[b][axis]);
     if (sorted.length >= 3) { inlet = sorted[0]; outlet = sorted[sorted.length - 1]; }
   }
-  return {
+  const base: Intent = {
     kind: pipe ? 'pipe' : 'aerodynamics', fluid: 'air', turbulence: 'kOmegaSST', speed: pipe ? 1 : 20,
     direction: [-1, 0, 0], lift_axis: [0, 0, 1], inlet, outlet, driving: 'speed', flow_rate: 0.001,
     inlet_pressure_pa: 100, outlet_pressure_pa: 0, patches: names, origin: center, axis: [1, 0, 0], rpm: 2000, tier: 'basic',
   };
+  // A demo model starts from its own ready setup (still fully editable).
+  return { ...base, ...((geometry.sample_setup?.intent || {}) as Partial<Intent>) };
 }
 
 function presetRequest(geometryId: string, intent: Intent) {
@@ -80,7 +86,7 @@ function presetRequest(geometryId: string, intent: Intent) {
     ground: intent.kind === 'aerodynamics' ? intent.ground || 'none' : 'none', ride_height_m: intent.ride_height_m || 0 };
 }
 
-function applyOverrides(base: Spec, overrides: Overrides, attestation: Attestation | undefined, previewKey: string, projectId: string, name: string, tier: Tier, intent?: Intent): Spec {
+function applyOverrides(base: Spec, overrides: Overrides, attestation: Attestation | undefined, previewKey: string, projectId: string, name: string, tier: Tier, intent?: Intent, processes?: number): Spec {
   const spec: any = JSON.parse(JSON.stringify(base));
   spec.project_id = projectId;
   spec.name = name || spec.name;
@@ -88,12 +94,15 @@ function applyOverrides(base: Spec, overrides: Overrides, attestation: Attestati
   if (overrides.reference_area) spec.references.area = overrides.reference_area;
   if (overrides.reference_length) spec.references.length = overrides.reference_length;
   if (overrides.iterations) spec.solver.iterations = overrides.iterations;
+  // An explicit choice wins; otherwise use the cores the compute worker reports (hardware.py).
   if (overrides.processes) spec.solver.processes = overrides.processes;
+  else if (processes) spec.solver.processes = processes;
   if (overrides.timeout_minutes) spec.solver.timeout_minutes = overrides.timeout_minutes;
   if (overrides.time?.mode === 'transient' || overrides.time?.sliding_mesh) spec.time = { ...(spec.time || {}), ...overrides.time };
   if (intent?.fluid === 'multiphase') spec.free_surface = { ...(spec.free_surface || {}), waterline_z: intent.waterline_z ?? 0 };
   else delete spec.free_surface;
   if (overrides.auto_retry !== undefined) spec.solver.auto_retry = overrides.auto_retry;
+  if (overrides.early_stop) spec.convergence = { ...(spec.convergence || {}), enabled: true };
   if (tier === 'custom' && overrides.mesh) Object.assign(spec.mesh, overrides.mesh, { tier: 'custom' });
   const e = overrides.elements || {};
   spec.elements = { ...spec.elements, wheels: e.wheels || [], porous: e.porous || [], openings: e.openings || [],
@@ -132,7 +141,8 @@ export function useSetup(projectId: string) {
   // Initialise the intent once geometry and its scene are known.
   useEffect(() => {
     if (!workspace || workspace.intent || !geometry.data || !scene.data) return;
-    setWorkspace((w) => (w ? { ...w, intent: defaultIntent(geometry.data!, scene.data), overrides: w.overrides || {} } : w));
+    setWorkspace((w) => (w ? { ...w, intent: defaultIntent(geometry.data!, scene.data),
+      overrides: w.overrides || ((geometry.data!.sample_setup?.overrides || {}) as Overrides) } : w));
   }, [workspace, geometry.data, scene.data]);
 
   // Autosave the draft (debounced).
@@ -157,9 +167,11 @@ export function useSetup(projectId: string) {
   });
   const previewError = preview.error instanceof ApiError ? preview.error.message : preview.error ? String(preview.error) : null;
 
+  const health = useHealth();
+  const recommendedProcesses = health.data?.worker.lanes?.compute?.capabilities?.hardware?.recommended_processes;
   const spec = useMemo(() => (preview.data?.spec && intent
-    ? applyOverrides(preview.data.spec, overrides, workspace?.attestation, previewKey, projectId, name, intent.tier, intent)
-    : null), [preview.data, overrides, workspace?.attestation, previewKey, projectId, name, intent?.tier]);
+    ? applyOverrides(preview.data.spec, overrides, workspace?.attestation, previewKey, projectId, name, intent.tier, intent, recommendedProcesses)
+    : null), [preview.data, overrides, workspace?.attestation, previewKey, projectId, name, intent?.tier, recommendedProcesses]);
   const specKey = configurationKey(spec);
   const validation = useValidation(spec, specKey);
   const estimate = useEstimate(spec, specKey);

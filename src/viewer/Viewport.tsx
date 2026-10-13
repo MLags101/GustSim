@@ -18,7 +18,7 @@ import type { CameraPreset, SceneData, Vec3 } from '../api/types';
 import { COLORMAPS, type ColormapId } from '../lib/colormaps';
 import { loadPolyData, arrayInfo } from './data';
 import { overlayGeometry, groundPlane, dimensionLines, orientedBoxes } from './overlays';
-import { tracksFromPolyData, sampleTrack } from './playback';
+import { tracksFromPolyData, playbackPlan, particlePositions } from './playback';
 
 export interface ViewLayer {
   id: string;
@@ -34,6 +34,8 @@ export interface ViewLayer {
   subsample?: number;
   edges?: boolean;
   ambient?: number;
+  /** Hide this other layer once this one has loaded (an animated copy of the same surface). */
+  replaces?: string;
 }
 export interface GeometryView {
   scene: SceneData;
@@ -75,7 +77,9 @@ interface Props {
   frames?: Record<string, { field: string; values: Float32Array }> | null;
   /** Camera direction for the first framing (e.g. the manifest's flow-relative 3D preset). */
   initialCamera?: CameraPreset | null;
-  tracerLayer?: string | null;
+  /** Streamline layers whose particles are animated, and particles per typical streamline. */
+  tracerLayers?: string[] | null;
+  tracerDensity?: number;
   label?: string;
   onLoading?: (loading: boolean) => void;
   onError?: (message: string | null) => void;
@@ -129,6 +133,7 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport(prop
   const latest = useRef(props);
   latest.current = props;
   const [ready, setReady] = useState(0);
+  const [loaded, setLoaded] = useState(0);
 
   useImperativeHandle(ref, () => ({
     capture: async () => {
@@ -188,9 +193,9 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport(prop
     orientation.setParentRenderer(renderer);
     orientation.setEnabled(true);
     orientation.setViewportCorner(vtkOrientationMarkerWidget.Corners.BOTTOM_LEFT);
-    orientation.setViewportSize(0.14);
-    orientation.setMinPixelSize(70);
-    orientation.setMaxPixelSize(110);
+    orientation.setViewportSize(0.12);
+    orientation.setMinPixelSize(64);
+    orientation.setMaxPixelSize(96);
 
     const selector = vtkOpenGLHardwareSelector.newInstance({ captureZValues: true } as any);
     selector.setFieldAssociation(FieldAssociations.FIELD_ASSOCIATION_CELLS);
@@ -235,17 +240,20 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport(prop
     });
     let lastProbe = 0;
     let probeTimer: ReturnType<typeof setTimeout> | null = null;
-    const moveSub = interactor.onMouseMove((event: any) => {
+    // vtk reports the first move after a pause as StartMouseMove, so both events probe.
+    const probe = (event: any) => {
       const p = latest.current;
       if (!p.probeLayer || !p.onProbe || !event.position) return;
       const now = performance.now();
       const run = () => {
         lastProbe = performance.now();
-        pick(handle, event.position.x, event.position.y).then((hit) => latest.current.onProbe?.(hit?.result && hit.result.layerId === latest.current.probeLayer?.layerId ? hit.result : null)).catch(() => undefined);
+        pick(handle, event.position.x, event.position.y).then((hit) => latest.current.onProbe?.(hit?.result ?? null)).catch((e) => console.warn('Probe failed', e));
       };
       if (probeTimer) clearTimeout(probeTimer);
       if (now - lastProbe > 70) run(); else probeTimer = setTimeout(run, 70);
-    });
+    };
+    const moveSub = interactor.onMouseMove(probe);
+    const startMoveSub = interactor.onStartMouseMove(probe);
     const leave = () => latest.current.onProbe?.(null);
     canvas?.addEventListener('mouseleave', leave);
 
@@ -260,13 +268,16 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport(prop
       observer.disconnect();
       canvas?.removeEventListener('contextmenu', noMenu);
       canvas?.removeEventListener('mouseleave', leave);
-      cameraSubscription.unsubscribe(); pressSub.unsubscribe(); releaseSub.unsubscribe(); moveSub.unsubscribe();
+      cameraSubscription.unsubscribe(); pressSub.unsubscribe(); releaseSub.unsubscribe(); moveSub.unsubscribe(); startMoveSub.unsubscribe();
       orientation.setEnabled(false); orientation.delete(); cube.delete();
       manipulators.forEach((m) => m.delete()); style.delete(); selector.delete();
       for (const entry of handle.layers.values()) { renderer.removeActor(entry.actor); entry.actor.delete(); entry.mapper.delete(); entry.lut?.delete(); }
       if (handle.geometry) { handle.geometry.actor.delete(); handle.geometry.mapper.delete(); handle.geometry.poly.delete(); }
       handle.overlays.forEach((o: any) => o.delete?.());
+      // Release the WebGL context now; browsers cap live contexts and blank the oldest canvas.
+      const gl = apiWindow.getContext?.();
       render.delete();
+      gl?.getExtension?.('WEBGL_lose_context')?.loseContext();
     };
   }, []);
 
@@ -335,11 +346,13 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport(prop
     const handle = scene.current;
     if (!handle) return;
     let alive = true;
+    latest.current.onError?.(null);
     const wanted = new Map((props.layers || []).map((l) => [l.id, l]));
     for (const [id, entry] of handle.layers) {
       if (!wanted.has(id)) {
         handle.renderer.removeActor(entry.actor);
         entry.actor.delete(); entry.mapper.delete(); entry.lut?.delete();
+        entry.restore?.();
         handle.layers.delete(id);
       }
     }
@@ -375,9 +388,16 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport(prop
       latest.current.onLoading?.(false);
       const first = !handle.fitted;
       for (const layer of wanted.values()) applyLayer(handle, layer);
+      for (const layer of wanted.values()) {
+        const replaced = layer.replaces ? handle.layers.get(layer.replaces) : null;
+        if (replaced && handle.layers.get(layer.id)?.source) replaced.actor.setVisibility(false);
+      }
       if (first && [...handle.layers.values()].some((e: any) => e.source)) fitIfFirst(handle);
+      // Layers loaded after the first framing (streamlines, clouds) must not be clipped.
+      handle.renderer.resetCameraClippingRange();
       handle.renderWindow.render();
       updateAnchors(handle, latest.current);
+      setLoaded((v) => v + 1);
     });
     return () => { alive = false; };
   }, [ready, layersKey]);
@@ -391,12 +411,16 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport(prop
       const entry = handle.layers.get(id);
       const info = entry?.poly ? arrayInfo(entry.poly, frame.field) : null;
       if (!info || info.array.getNumberOfValues() !== frame.values.length) continue;
+      if (!entry.restore) {
+        const original = info.array.getData(), array = info.array, poly = entry.poly;
+        entry.restore = () => { array.setData(original, 1); poly.modified(); };
+      }
       info.array.setData(frame.values, 1);
       entry.poly.modified();
       changed = true;
     }
     if (changed) handle.renderWindow.render();
-  }, [ready, props.frames]);
+  }, [ready, loaded, props.frames]);
 
   // --- overlays -----------------------------------------------------------------------------
   const overlayKey = JSON.stringify(props.overlays || null);
@@ -479,43 +503,45 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport(prop
   useEffect(() => { const handle = scene.current; if (handle) updateAnchors(handle, latest.current); }, [ready, anchorsKey]);
 
   // --- steady streamline tracer playback ------------------------------------------------------
+  const tracerKey = JSON.stringify([props.tracerLayers || [], props.tracerDensity ?? 10]);
   useEffect(() => {
     const handle = scene.current;
-    const layerId = props.tracerLayer;
-    if (!handle || !layerId) return;
+    const layerIds = props.tracerLayers || [];
+    if (!handle || !layerIds.length) return;
+    // Wait until the streamline layers have loaded (and been subsampled) before building tracks.
+    const entries = layerIds.map((id) => handle.layers.get(id));
+    if (entries.some((entry) => !entry?.poly)) return;
+    const tracks = entries.flatMap((entry) => tracksFromPolyData(entry.poly));
+    if (!tracks.length) return;
+    const plan = playbackPlan(tracks, props.tracerDensity ?? 10);
+    const particles = vtkPolyData.newInstance();
+    particles.getPoints().setData(new Float32Array(plan.total * 3), 3);
+    const verts = new Uint32Array(plan.total * 2);
+    for (let i = 0; i < plan.total; i++) { verts[2 * i] = 1; verts[2 * i + 1] = i; }
+    particles.getVerts().setData(verts);
+    const mapper = vtkMapper.newInstance(); mapper.setInputData(particles); mapper.setScalarVisibility(false);
+    const actor = vtkActor.newInstance(); actor.setMapper(mapper);
+    actor.getProperty().setColor(1, 0.82, 0.2); actor.getProperty().setAmbient(1); actor.getProperty().setDiffuse(0);
+    // Point size is in device pixels; keep particles about 3 CSS px on any display.
+    actor.getProperty().setPointSize(3 * (window.devicePixelRatio || 1));
+    actor.setPickable(false);
+    handle.renderer.addActor(actor);
+    const began = performance.now();
     let frameId = 0;
-    let actor: any = null, mapper: any = null, particles: any = null;
-    const start = () => {
-      const entry = handle.layers.get(layerId);
-      if (!entry?.poly) { frameId = requestAnimationFrame(start); return; }
-      const tracks = tracksFromPolyData(entry.poly);
-      if (!tracks.length) return;
-      particles = vtkPolyData.newInstance();
-      particles.getPoints().setData(new Float32Array(tracks.length * 3), 3);
-      particles.getVerts().setData(new Uint32Array(tracks.flatMap((_: any, i: number) => [1, i])));
-      mapper = vtkMapper.newInstance(); mapper.setInputData(particles); mapper.setScalarVisibility(false);
-      actor = vtkActor.newInstance(); actor.setMapper(mapper);
-      actor.getProperty().setColor(1, 0.82, 0.2); actor.getProperty().setPointSize(5); actor.getProperty().setAmbient(1);
-      actor.setPickable(false);
-      handle.renderer.addActor(actor);
-      const began = performance.now();
-      const frame = (now: number) => {
-        if (scene.current !== handle) return;
-        const values = particles.getPoints().getData() as Float32Array;
-        tracks.forEach((track: any, i: number) => values.set(sampleTrack(track, ((now - began) / 8000 + i / tracks.length) % 1), i * 3));
-        particles.getPoints().modified(); particles.modified();
-        handle.renderWindow.render();
-        frameId = requestAnimationFrame(frame);
-      };
+    const frame = (now: number) => {
+      if (scene.current !== handle) return;
+      particlePositions(tracks, plan, (now - began) / 1000, particles.getPoints().getData() as Float32Array);
+      particles.getPoints().modified(); particles.modified();
+      handle.renderWindow.render();
       frameId = requestAnimationFrame(frame);
     };
-    start();
+    frameId = requestAnimationFrame(frame);
     return () => {
       cancelAnimationFrame(frameId);
-      if (actor && scene.current === handle) { handle.renderer.removeActor(actor); handle.renderWindow.render(); }
-      actor?.delete(); mapper?.delete(); particles?.delete();
+      if (scene.current === handle) { handle.renderer.removeActor(actor); handle.renderWindow.render(); }
+      actor.delete(); mapper.delete(); particles.delete();
     };
-  }, [ready, props.tracerLayer]);
+  }, [ready, loaded, tracerKey]);
 
   function onKeyDown(event: React.KeyboardEvent) {
     const handle = scene.current;
@@ -593,6 +619,8 @@ function applyLayer(handle: any, layer: ViewLayer) {
   const { actor, mapper } = entry;
   const property = actor.getProperty();
   const info = layer.field ? arrayInfo(entry.poly, layer.field) : null;
+  // Detach the old table before deleting it so the mapper never holds a deleted object.
+  mapper.setLookupTable(null);
   entry.lut?.delete();
   entry.lut = null;
   if (info) {
@@ -644,7 +672,7 @@ async function pick(handle: any, x: number, y: number): Promise<{ geometryGroup?
         if (info.association === 'cell') {
           components = Array.from({ length: n }, (_, c) => data[cellId * n + c]);
         } else {
-          const ids = entry.poly.getCellPoints ? cellPointIds(entry.poly, cellId) : [];
+          const ids = cellPointIds(entry.poly, cellId);
           if (ids.length) components = Array.from({ length: n }, (_, c) => ids.reduce((s, id) => s + data[id * n + c], 0) / ids.length);
         }
         if (components) value = n > 1 ? Math.hypot(...components) : components[0];
@@ -661,12 +689,24 @@ async function pick(handle: any, x: number, y: number): Promise<{ geometryGroup?
 
 function scene_props(handle: any) { return handle.propsRef?.current; }
 
+/** Per-dataset cell offsets. vtk.js objects are frozen, so the cache lives beside them (a
+ *  property set on the dataset throws, which once made every probe value silently empty). */
+const cellIndexes = new WeakMap<object, { data: ArrayLike<number>[]; which: Uint8Array; at: Uint32Array }>();
+
+/** Point ids of one cell, read straight from the connectivity arrays. Cell ids run over verts,
+ *  lines, polys and strips in that order (as the GPU selector numbers them). */
 function cellPointIds(poly: any, cellId: number): number[] {
-  try {
-    if (!poly.__gustsimCells) { poly.buildCells(); poly.__gustsimCells = true; }
-    const cell = poly.getCellPoints(cellId);
-    return Array.from(cell.cellPointIds || []);
-  } catch { return []; }
+  let index = cellIndexes.get(poly);
+  if (!index) {
+    const data = [poly.getVerts?.(), poly.getLines?.(), poly.getPolys?.(), poly.getStrips?.()].map((cells) => (cells?.getData?.() || []) as ArrayLike<number>);
+    const which: number[] = [], at: number[] = [];
+    data.forEach((array, k) => { for (let i = 0; i < array.length; i += array[i] + 1) { which.push(k); at.push(i); } });
+    index = { data, which: Uint8Array.from(which), at: Uint32Array.from(at) };
+    cellIndexes.set(poly, index);
+  }
+  if (cellId < 0 || cellId >= index.at.length) return [];
+  const array = index.data[index.which[cellId]], start = index.at[cellId];
+  return Array.from({ length: array[start] }, (_, k) => array[start + 1 + k]);
 }
 
 function updateAnchors(handle: any, props: Props) {

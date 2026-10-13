@@ -346,6 +346,9 @@ def validate_free_surface(spec, low, high, errors):
     gravity = spec.free_surface.gravity
     if abs(gravity[2]) < 1e-6:
         errors.append("Gravity must have a vertical component")
+    if spec.free_surface.symmetry_y0:
+        # Not compiled: the half-model would need a y = 0 domain face with symmetry conditions.
+        errors.append("A half-model symmetry plane at y = 0 is not supported for free-surface runs yet; model the full hull")
 
 
 def validate_sliding_mesh(spec, errors):
@@ -393,7 +396,13 @@ def validate_elements(spec, meta, mesh, groups, low, high, errors, warnings):
             warnings.append(f"The model sinks {sink*1000:.3g} mm into the ground plane so contact patches mesh cleanly; loads exclude the part below the ground")
     if e.wheels and env.ground == "none":
         errors.append("Rotating wheels need a ground plane: choose On ground or Moving ground")
+    if env.ground == "static" and any(w.rotating for w in e.wheels):
+        # A spinning tyre on a stationary no-slip floor slips at the contact patch.
+        errors.append("Rotating wheels need a moving ground: on a static floor the tyre contact would slip. "
+                      "Choose Moving ground, or set the wheels to not rotate")
     for w in e.wheels:
+        if w.rotating and abs(float(np.asarray(w.axis) @ np.asarray(spec.references.lift_axis))) > 0.5:
+            errors.append(f"Wheel {w.name} axle must be roughly horizontal to roll on the ground")
         if not set(w.patches) <= patches:
             errors.append(f"Wheel {w.name} references unknown surfaces")
         elif any(kinds.get(p) not in ("wall", "rotating_wall", "moving_wall") for p in w.patches):

@@ -34,6 +34,8 @@ def describe(run, root):
                 with path.open('rb') as f:
                     f.seek(max(0,path.stat().st_size-65536));text=f.read().decode(errors='replace')
                 iterations=re.findall(r'^Time = ([\d.eE+-]+)',text,re.M)
+                # Early stopping is experimental and opt-in; without it the full budget runs.
+                stops=bool(((run['spec'].get('convergence') or {}).get('enabled')))
                 live=root/'results/convergence_live.json'
                 if iterations and live.is_file():
                     try:state=json.loads(live.read_text())
@@ -42,10 +44,11 @@ def describe(run, root):
                         current=int(float(iterations[-1]));cap=int(state['cap'])
                         if state['state']=='averaging' and state.get('averaging_start') is not None:
                             label=f"Convergence detected at iteration {int(state['averaging_start'])}; averaging loads (iteration {current}, cap {cap})"
-                        else:label=f'Searching for load convergence (iteration {current}, cap {cap}); the solve stops early once loads settle'
+                        elif stops:label=f'Searching for load convergence (iteration {current}, cap {cap}); the solve stops early once loads settle'
+                        else:label=f'Iteration {current} / {cap}; monitoring load convergence (early stopping is off)'
                         return {'percent':min(87,10+77*current/cap),'label':label,'basis':'convergence monitor','convergence':state}
                 if iterations:
                     current=int(float(iterations[-1]));total=run['spec']['solver']['iterations']
-                    return {'percent':min(87,10+77*current/total),'label':f'Iteration {current} / {total}; convergence can finish earlier','basis':'iteration budget'}
+                    return {'percent':min(87,10+77*current/total),'label':f'Iteration {current} / {total}'+('; convergence can finish earlier' if stops else ''),'basis':'iteration budget'}
     if run['kind']=='view':phase=50;detail='Extracting a view from solved fields'
     return {'percent':phase,'label':detail,'basis':'phase estimate'}

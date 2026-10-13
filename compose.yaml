@@ -42,7 +42,9 @@ services:
     volumes:
       - gustsim-data:/data
     mem_limit: ${GUSTSIM_WORKER_MEMORY:-22g}
-    cpus: ${GUSTSIM_CPUS:-6}
+    # 0 = no limit: the worker reports its physical cores (hardware.py) and new simulations use
+    # them all but one. Set GUSTSIM_CPUS to cap it, e.g. to keep the machine responsive.
+    cpus: ${GUSTSIM_CPUS:-0}
     shm_size: 1g
     environment:
       GUSTSIM_MEMORY_GB: "${GUSTSIM_MEMORY_GB:-20}"

@@ -129,8 +129,10 @@ def record_review(mesh, acknowledged=False):
 
 
 def queue_solve(simulation, mesh):
-    # A later mesh (adaptive refinement) carries its own spec. The first mesh matches the simulation.
-    spec = mesh['spec'] if isinstance(mesh.get('spec'), dict) else simulation['spec']
+    # A later mesh of this simulation (adaptive refinement) carries its own spec. A mesh borrowed
+    # from another batch member has that member's physics (speed, rpm), so the solve keeps ours.
+    own = mesh.get('simulation_id') == simulation['id']
+    spec = mesh['spec'] if own and isinstance(mesh.get('spec'), dict) else simulation['spec']
     attempt = 1 + sum(1 for r in attempts(simulation['id']) if r['kind'] == 'solve')
     identifier = stage_id(simulation['id'], 'solve', attempt)
     try:
@@ -207,7 +209,8 @@ def derive(simulation, runs):
         return 'awaiting_review', 'review', mesh
     package = None
     if solve is not None:
-        package = next((r for r in db.runs(kinds=('package',), limit=500) if r['parent_id'] == solve['id']), None)
+        # Query by parent: a window of recent package runs misses older solves on a busy install.
+        package = next(iter(db.runs(kinds=('package',), parent_id=solve['id'], limit=1)), None)
     current = solve or mesh
     if current is None:
         return 'queued', 'mesh', None

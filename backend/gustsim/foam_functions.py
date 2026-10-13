@@ -29,6 +29,10 @@ def stop_function(folder):
 def output_functions(spec, wall_patches):
     """Surface and volume fields for the results package (written at write times only)."""
     rho = spec.fluid.density
+    # interFoam's p is in Pa: the pressure function object then reads the mixture density field
+    # `rho`, and coefficients refer to the water density.
+    free_surface = getattr(spec, 'free_surface', None)
+    density = f'rho rho; rhoInf {free_surface.water.density};' if free_surface is not None else f'rho rhoInf; rhoInf {rho};'
     out = ''
     if wall_patches:
         out += (f'\nwallShearStress {{ type wallShearStress; libs (fieldFunctionObjects); patches ({" ".join(wall_patches)}); '
@@ -36,9 +40,9 @@ def output_functions(spec, wall_patches):
     reference = coefficient_reference(spec)
     if reference is not None:
         out += (f'\npressureCoefficient {{ type pressure; libs (fieldFunctionObjects); mode staticCoeff; result Cp; '
-                f'rho rhoInf; rhoInf {rho}; pRef 0; pInf 0; UInf {vector(reference)}; writeControl writeTime; errors warn; }}')
+                f'{density} pRef 0; pInf 0; UInf {vector(reference)}; writeControl writeTime; errors warn; }}')
         out += (f'\ntotalPressureCoefficient {{ type pressure; libs (fieldFunctionObjects); mode totalCoeff; result Cpt; '
-                f'rho rhoInf; rhoInf {rho}; pRef 0; pInf 0; UInf {vector(reference)}; writeControl writeTime; errors warn; }}')
+                f'{density} pRef 0; pInf 0; UInf {vector(reference)}; writeControl writeTime; errors warn; }}')
     out += '\nQcriterion { type Q; libs (fieldFunctionObjects); writeControl writeTime; errors warn; }'
     out += '\nvorticityField { type vorticity; libs (fieldFunctionObjects); writeControl writeTime; errors warn; }'
     if spec.flow.turbulence != 'laminar' and spec.outputs.noise:

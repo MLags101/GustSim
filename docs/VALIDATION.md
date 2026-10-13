@@ -42,7 +42,7 @@ Interactive browser QA completed conservative preparation of a sphere, guided ex
 | Potsdam VP1304 | Thrust and torque ≤10% from measured data at three nonzero operating points | Not executed |
 | Three-grid study | Primary load change <5% between finest two meshes | Not executed |
 | Domain sensitivity | Documented sensitivity of primary outputs to larger domain | Not executed |
-| Early-stop consistency | Early-stopped coefficients within 1% of the full-budget window average | Not executed |
+| Early-stop consistency | Early-stopped coefficients within 1% of the full-budget window average | Not executed. Until it passes, early stopping is opt-in and labelled experimental (2026-10-12); accuracy tiers no longer enable it or AMR. |
 | Flat-plate Cf | Laminar Cf within 5% of Blasius | Not executed |
 | Multi-zone Couette | Each MRF zone's profile within 2% | Not executed |
 | Porous duct | Δp within 2% of the two-point curve | Not executed |

@@ -24,6 +24,8 @@ export interface Geometry {
   bounds: [Vec3, Vec3]; dimensions: Vec3; triangles: number; vertices: number; patches: Patch[]; parts?: Part[];
   operations: any[]; diagnostics: Record<string, any>; geometry_fidelity?: 'wrapped' | 'imported'; wrap?: { detail?: string };
   patch_mapping?: Record<string, string[]>; cad_valid?: boolean; sample?: string;
+  /** Demo models carry a ready setup (intent fields and overrides) the setup page starts from. */
+  sample_setup?: { intent?: Record<string, unknown>; overrides?: Record<string, unknown> };
 }
 export interface SceneData { points: number[]; polys: number[]; groups: number[]; patches?: { name: string; group: number }[] }
 
@@ -65,6 +67,8 @@ export interface Layer {
   orientation?: 'horizontal' | 'vertical'; offset?: number; axis?: 'x' | 'y' | 'z'; maturity?: string;
   items?: { index: number; position_m: number; url: string; bytes: number; cells: number }[];
   blobs?: { area_m2: number; centroid: Vec3; min: Vec3; max: Vec3 }[]; patch_names?: string[];
+  /** Surface: distance off the wall at which the near-wall velocity was sampled (m). */
+  near_wall_offset_m?: number | null; seeds?: number; waterline_z?: number;
 }
 export interface CameraPreset { position: Vec3; focal_point: Vec3; view_up: Vec3 }
 export interface Manifest {
@@ -118,11 +122,13 @@ export interface Estimate { basis: string; samples: number; current: TierEstimat
 
 export interface CapabilityInfo { label: string; kind: string; maturity: string; gates: Record<string, string>; available: boolean | null; reason: string | null }
 export interface Capabilities { physics: Record<string, CapabilityInfo>; lanes: Record<string, { online: boolean }>; features: { async_import: boolean; formats: string[] } }
-export interface Health { version: string; openfoam_version: string; worker: { online: boolean; active_run: string | null; lanes: Record<string, { online: boolean; active_run: string | null }> }; cad_available: boolean; async_import: boolean }
+/** Compute worker hardware (backend/gustsim/hardware.py). */
+export interface Hardware { physical_cores: number; logical_cpus: number; cpu_quota: number | null; post_cpus: number; recommended_processes: number; gpu_devices: string[] }
+export interface Health { version: string; openfoam_version: string; worker: { online: boolean; active_run: string | null; lanes: Record<string, { online: boolean; active_run: string | null; capabilities?: { hardware?: Hardware } }> }; cad_available: boolean; async_import: boolean }
 
-export interface Project { id: string; name: string; updated: number; workspace?: Workspace }
+export interface Project { id: string; name: string; updated: number; archived?: boolean; workspace?: Workspace }
 export interface Workspace { version?: number; spec?: Spec | null; ack?: string; selected?: string[]; tier?: string; simulations?: string[] }
-export interface Sample { id: string; name: string; description: string; use_case: string; speed: number; source: string }
+export interface Sample { id: string; name: string; description: string; use_case: string; speed: number; source: string; minutes?: number; shows?: string[] }
 
 export interface CompareResult {
   baseline: string; columns: { id: string; label: string; unit: string; group: string }[];

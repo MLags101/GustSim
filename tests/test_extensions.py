@@ -18,11 +18,16 @@ def test_indicator_mask_and_coefficient_change():
     assert amr.coefficient_change(0, 0.4) is None
 
 
-def test_advanced_tier_requests_one_adaptive_cycle():
+def test_adaptive_refinement_is_an_experimental_opt_in():
     _, spec = aero()
-    resolved = __import__('gustsim.mesh_tiers', fromlist=['resolve']).resolve(spec, 'advanced')
-    assert resolved.mesh.adaptive_cycles == 1
-    assert validation.validate(resolved)['valid']
+    resolve = __import__('gustsim.mesh_tiers', fromlist=['resolve']).resolve
+    resolved = resolve(spec, 'advanced')
+    assert resolved.mesh.adaptive_cycles == 0, 'a tier never switches on experimental refinement'
+    spec.mesh.adaptive_cycles = 1
+    resolved = resolve(spec, 'advanced')
+    assert resolved.mesh.adaptive_cycles == 1, 'an explicit opt-in is kept'
+    report = validation.validate(resolved)
+    assert report['valid'] and 'adaptive_mesh' in report['experimental_features']
 
 
 def test_completed_solve_queues_an_indicator_then_a_refined_mesh():

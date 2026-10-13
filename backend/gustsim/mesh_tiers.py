@@ -3,6 +3,10 @@
 Basic, Regular and Advanced target a surface cell of about L/100, L/200 and L/400 (L = the
 reference length). The resolved numbers, not the tier name, are what the run snapshot and the
 configuration identity record. Tiers do not guarantee accuracy; a mesh study does.
+
+Tiers never switch on experimental capabilities. Force-based early stopping and adaptive mesh
+refinement are experimental (capabilities.py), so they stay as the configuration has them: the
+user opts in and acknowledges the experimental label.
 """
 import math
 import numpy as np
@@ -16,9 +20,9 @@ TIERS = {
                 'wake_boxes': 2, 'wake_offset': 2, 'adaptive_cycles': 0, 'iterations': 4000,
                 'description': 'Design work. Finer surface and a nested wake refinement.'},
     'advanced': {'label': 'Advanced', 'divisions': 400, 'feature_extra': 2, 'layers': 5, 'max_cells': 25_000_000,
-                 'wake_boxes': 3, 'wake_offset': 2, 'adaptive_cycles': 1, 'iterations': 6000,
-                 'description': 'Detailed study. Fine surface, three wake boxes and one adaptive refinement cycle '
-                                'where available. Bounded by this computer\'s memory.'},
+                 'wake_boxes': 3, 'wake_offset': 2, 'adaptive_cycles': 0, 'iterations': 6000,
+                 'description': 'Detailed study. Fine surface and three wake boxes. '
+                                'Bounded by this computer\'s memory.'},
 }
 SNAPPY_GB_PER_MILLION = 2.0
 MAX_SURFACE_LEVEL = 6
@@ -54,7 +58,9 @@ def resolve(spec, tier, meta=None):
         base_cells = min(200, math.ceil(longest/(target*2**MAX_SURFACE_LEVEL)))
         level = math.ceil(math.log2(max(longest/base_cells/target, 1)))
     level = int(min(max(level, 1), MAX_SURFACE_LEVEL))
-    adaptive = settings['adaptive_cycles'] if 'adaptive_mesh' in validation.COMPILED_FEATURES else 0
+    # Adaptive refinement is experimental: the tier adds no cycles, the configuration's own
+    # (opt-in) count is kept.
+    adaptive = max(settings['adaptive_cycles'], out.mesh.adaptive_cycles) if 'adaptive_mesh' in validation.COMPILED_FEATURES else 0
     out.mesh = out.mesh.model_copy(update={
         'tier': tier, 'base_cells': int(base_cells), 'surface_level': level,
         'feature_level': int(min(level + settings['feature_extra'], 7)),
@@ -72,13 +78,39 @@ def resolve(spec, tier, meta=None):
     thin = recommend(out, meta)['body_level']
     out.mesh.body_level = thin if thin > level else max(level - 1, 1)
     out.solver = out.solver.model_copy(update={'iterations': settings['iterations']})
-    out.convergence = out.convergence.model_copy(update={'enabled': True, 'cap': settings['iterations']})
+    # The tier sets the iteration budget; early stopping stays as configured (off by default).
+    out.convergence = out.convergence.model_copy(update={'cap': settings['iterations']})
+    return out
+
+
+def off_grid(spec):
+    """Move the point inside the fluid off the background grid's planes.
+
+    snappyHexMesh refuses a locationInMesh that lies on a cell face, edge or vertex. The preset
+    places it a round fraction of the model length from the domain corner, and the domain is a
+    round number of model lengths, so it often falls exactly on a background (or refined, i.e.
+    halved) grid plane. A shift of 0.137 background cells per affected axis is not a dyadic
+    fraction, so no refinement level puts a plane there either."""
+    if spec.schema_version < 2:
+        return spec  # v1 specs keep their recorded configuration (and identity) unchanged
+    low, high = np.asarray(spec.domain.minimum, float), np.asarray(spec.domain.maximum, float)
+    extent = high - low
+    counts = np.maximum(4, np.ceil(spec.mesh.base_cells*extent/max(extent.max(), 1e-300))).astype(int)
+    spacing = extent/counts
+    point = np.asarray(spec.domain.fluid_point, float)
+    cells = (point - low)/np.maximum(spacing, 1e-300)
+    on_plane = np.abs(cells*256 - np.round(cells*256)) < 1e-6
+    if not on_plane.any():
+        return spec
+    shifted = np.where(on_plane, point + 0.137*spacing, point)
+    out = spec.model_copy(deep=True)
+    out.domain.fluid_point = tuple(float(v) for v in shifted)
     return out
 
 
 def apply(spec, meta=None):
     tier = spec.mesh.tier
-    return spec if tier == 'custom' else resolve(spec, tier, meta)
+    return off_grid(spec if tier == 'custom' else resolve(spec, tier, meta))
 
 
 def describe():

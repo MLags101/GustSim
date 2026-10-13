@@ -124,7 +124,7 @@ export function RotorsEditor({ s }: { s: SetupState }) {
     if (!patches.length) { toast.info('Tick the surfaces of the additional rotor first.'); return; }
     setBusy(true);
     try {
-      const fit = await post<any>(`/geometry/${geometry.id}/rotor-suggestion`, { patches, origin: intent.origin, axis: intent.axis });
+      const fit = await post<any>(`/geometry/${geometry.id}/rotor-detect`, { patches });
       const zone: ZoneElement = { name: `rotor${list.length + 2}`, origin: fit.origin, axis: fit.axis, rpm: intent.rpm, radius: fit.radius, length: fit.length, blade_radius: fit.blade_radius, patches };
       set({ rotating_zones: [...list, zone] }); setPatches([]);
     } catch (e) { toast.error(e); } finally { setBusy(false); }

@@ -25,18 +25,24 @@ GROUND_KIND = {'moving': 'moving_wall', 'static': 'wall', 'slip': 'slip'}
 
 
 def wheel_rotation(spec, wheel):
-    """Axis and signed RPM so the contact point moves with the ground (belt) velocity.
+    """Axis and signed RPM of a wheel rolling on the moving ground (belt).
 
-    Wall velocity is omega × (x - origin). At the contact point x - origin = -r·up, so with
-    axis = unit(V̂ × up) and omega = |V|/r the contact point moves at exactly V."""
+    The wheel spins about its own axle `a` (made horizontal). Wall velocity is ω a × (x - origin);
+    at the contact point x - origin = -r·up, so the contact moves at -ω r (a × up). Choosing
+    ω = -V·(a × up)/r makes it move with the component of the belt velocity V along the rolling
+    direction. With the flow along the rolling direction (no yaw) that is exactly V; with yaw the
+    remaining lateral belt component slips under the tyre, as on a yawed rolling-road model."""
     velocity = np.asarray(spec.flow.velocity(), dtype=float)
     up = unit(spec.references.lift_axis)
+    axle = np.asarray(wheel.axis, dtype=float)
+    axle = axle - (axle@up)*up
     horizontal = velocity - (velocity@up)*up
-    speed = float(np.linalg.norm(horizontal))
-    if speed < 1e-12:
+    if np.linalg.norm(axle) < 1e-6 or float(np.linalg.norm(horizontal)) < 1e-12:
+        # A vertical axle cannot roll (validation rejects it); still air turns nothing.
         return unit(wheel.axis), 0.0
-    axis = unit(np.cross(horizontal/speed, up))
-    return axis, speed/wheel.radius*30/math.pi
+    axis = unit(axle)
+    omega = -float(horizontal@np.cross(axis, up))/wheel.radius
+    return axis, omega*30/math.pi
 
 
 def opening_normal_velocity(spec, meta, mesh, groups, patch, speed):

@@ -250,3 +250,90 @@ Old v1 runs are never rewritten. Their compiled cases stay byte-identical (`test
 - The offline share bundle is `GET /api/runs/{id}/export/share`. The batch UI is the setup dialog and `/batches/:id`.
 - Frontend dev server: `scripts/web.ps1`, `scripts/web.sh`, or `docker compose -f compose.yaml -f compose.dev.yaml --profile web up`.
 - Design advice (M5) compiles an `adjointOptimisationFoam` sensitivity map after the steady solve and, when design boxes are set, queues a separate morphing attempt. The `adjoint_fd` and `morph_verification` gates are not executed. `scripts/smoke_linux.py --adjoint` and `--morph` are the execution checks; they have not been run on the pinned image for this change.
+
+## Usability and accuracy pass (2026-10-12)
+
+This pass follows the user's test notes. `docs/DESIGN.md` records the AirShaper reference used for the look and workflow.
+
+**Results UI**
+- `SimulationPage` shows a slim header, a left icon rail (AirShaper section order) and a full-height content area.
+- Flow and Insights are full-bleed 3D views with floating cards; the other sections scroll.
+- Flow (`FlowTab.tsx`):
+  - Surface and volume field pills sit at the bottom, with compact legends above them.
+  - One volume field is shown at a time: streamlines, loss clouds, vortices, noise, slices or water surface.
+  - View settings persist per run across sections, in a zustand store.
+  - Streamlines show one seed plane (the middle one first) or all planes. Line density runs from every seed to 1 in 20.
+  - Particles: several per streamline, evenly spaced in integration time on every visible rake (`viewer/playback.ts`).
+- Elements appears only when a run has rotors, wheels, radiators, openings or internal-flow metrics. It now has wheel and radiator cards.
+- A pre-package (legacy) run offers "Build results package" directly in the Flow view.
+- The setup page puts the model first, with the step cards in a right-hand column and a step navigator.
+- The dashboard header is light. Light-theme tokens follow DESIGN.md, and muted text was darkened for contrast.
+
+**Bugs fixed**
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| The 3D object was missing from results | `postpackage.surface` raised `KeyError: 'alpha_water'` on every run, so no surface layer was written. `tests/test_results_package.py` would have caught it. | Added the missing key; the test now also checks `U_near_mag` |
+| Results did not load the first time | The completed solve run was never refetched after the package job merged `result.package` into it | `SimulationPage` invalidates the run when the simulation's status or stage changes |
+| The probe did nothing | Legacy layer ID mismatch; the first move after a pause arrives as `StartMouseMove`; only one layer was probe-able | Fixed all three |
+| Results or the viewer went blank after many section switches | WebGL contexts leaked | The context is released on unmount |
+| Layers loaded late were clipped | The camera clipping range was not reset | Reset after every layer load |
+| Error banner stayed up | It was never cleared | Cleared at the start of each layer update |
+| Animation stuck on the stored field | Frame values did not reach a late-loading animation layer, and the cached VTP kept the last frame | Values are re-applied after it loads and the stored field is restored afterwards |
+| Batch members solved at the owner's speed | `pipeline.queue_solve` took the spec from a mesh borrowed from another member | A borrowed mesh no longer supplies the spec |
+| The onboarding tour blocked the next page | Its overlay outlived navigation | The tour ends on route change |
+
+**Results package**
+- `U_near_mag`: the mean |U| of samples 1.5, 2 and 2.5 % of the reference length off the wall along the outward normal. Closer samples sat inside the boundary-layer gradient and showed the cell layering as bands. It appears as the Velocity surface pill.
+- Streamline rakes now have 81 seeds. This applies to new packages only; rebuild a package to get it.
+
+**Backend review fixes** (`tests/test_review_fixes.py`)
+- Sliding mesh: rotor walls use `movingWallVelocity`; interface zones come from snappyHexMesh; `mergeOrSplitBaffles -split`; `pcorr`; adjustable-time writes.
+- Forces: porosity is counted only in the total `loads`; part groups follow the load selection.
+- interFoam: dictionaries fixed; p is not converted again (`pressure_is_kinematic` in the package plan).
+- AMR: the indicator is per cell, with h = V^(1/3).
+- Wheels: they spin about their own axle; rotating wheels on a static floor are rejected.
+- Monitoring and numerics:
+  - Propeller monitors thrust and torque.
+  - Internal-flow tables use window means.
+  - The pipe inlet length scale is 0.07·D_h.
+  - Openings use their compiled boundary kinds.
+  - Retry `changes` survive later result writes.
+  - The package lookup is by parent run.
+  - The robust profile always runs its second-order stage.
+  - `mapFields -consistent`.
+  - The free-surface half model is rejected.
+  - Adjoint scheme names checked.
+- **Experimental numerics (AGENTS.md):** force-based early stopping and AMR count as experimental. Tiers no longer switch them on.
+  - The Accuracy step has an opt-in switch, "Stop when the forces converge", and a run that uses it carries the experimental label.
+  - The v2 golden `external_v2_regular/system/controlDict` changed for this reason. The v1 goldens are unchanged.
+
+**Demos** (`samples.py`, `tests/test_samples.py`)
+- Seven built-in demos: streamlined body (first run), road car with wheels on a moving ground, Ahmed body, wing (planform reference area), drone propeller in an 8 m/s climb, tower in wind (transient) and radiator in a duct.
+- Each ships its setup in `sample_setup` (intent and overrides), so it opens ready to launch.
+- `rotors.py` with `POST /api/geometry/{id}/rotor-detect` finds a rotor's axis, centre and blade count from its symmetry. `RotorCard` uses it to set the axis automatically, so a propeller no longer needs its axis typed in.
+  - The earlier propeller meshing failure came from a wrong axis, which gave a misaligned MRF cylinder and skewed faces.
+
+**Found while running the demos on the real stack**
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| The sphere demo failed meshing: "Point (-0.6 -0.6 -0.6) is not inside the mesh or on a face or edge" | The preset puts the point inside the fluid a round number of model lengths from the domain corner, so it can land exactly on a background-grid vertex | `mesh_tiers.off_grid` shifts it 0.137 background cells off any (dyadically refined) grid plane. It applies to v2 specs only, so v1 identities and goldens are unchanged. Covered by `test_samples.py` |
+| The propeller failed the mesh check with 5 faces at skewness 5.3 | checkMesh's generic test applies 4 to every face; the explicit limits allow 20 on boundary faces and reported none in error | `workflow.quality_limits` passes in that case only, and the finding says how many boundary faces exceeded the generic limit |
+| The hover propeller diverged at iteration 453 (sigFpe in GAMG) | SIMPLEC with U 0.9 and unrelaxed p is too aggressive for MRF with no freestream | v2 MRF cases use `consistent no`, p 0.3, U 0.7 (the OpenFOAM MRF tutorial factors). The v2 rotor golden was regenerated; v1 is unchanged. The propeller demo also gets one automatic retry |
+| The sphere demo ended "numerical quality: review required" | Real: vortex shedding behind a sphere at Re ≈ 1.3×10⁵. Drag swung ±30 % and lift was as large as drag, so steady RANS cannot settle | The first demo is now a streamlined body of revolution (`teardrop`), which keeps the flow attached. The sphere run's honest "review" status stands |
+| The Velocity pill showed concentric bands | Sampling 0.5 % L off the wall lands inside the steep boundary-layer gradient, so the value follows the cell layering | Mean of samples at 1.5, 2 and 2.5 % L |
+| The progress label promised "convergence can finish earlier" when early stopping was off | — | The label depends on `spec.convergence.enabled` |
+| The propeller reported thrust −1.6 N | Rotor convention: the axis is the inflow direction and thrust is measured along −axis. Detection always chose +Z, but this rotor pushes air toward −Z | `rotors.detect` reads the blade helix sense (`handedness`, the sign of Σ (n·t)(n·a) over the blade faces). `rotors.orient` and the rotor card point the axis along the pushed air while keeping the physical spin. The card now gives the spin against the detected axis and says where thrust is reported. Covered by `test_rotors.py` and `rotor.test.ts` |
+| The hover propeller's loads were still drifting after 2,000 iterations | Steady MRF at zero inflow is poorly posed: the rotor's own jet recirculates in the closed tunnel | The demo is now an 8 m/s climb (advance ratio 0.32). Hover still runs, but expect it to need more iterations |
+| The wing reported Cl 2.45 | The generic preset references the frontal area (≈0.06 m²) | The wing demo uses its 0.25 m² planform and 0.25 m chord, giving Cl ≈ 0.36 |
+| The hover probe never showed a value | vtk.js freezes its objects. Caching the cell index on the dataset (`poly.__gustsimCells = true`) threw, the `catch` returned no point IDs, and every probe value was `null`. GPU picking itself always worked | The cell-offset cache is a `WeakMap` beside the dataset. `e2e/journey.spec.ts` hovers the model and expects the readout |
+| Solves used 4 MPI ranks on a 10-core machine | Worker capped at `cpus: 6` and a fixed default of 4 processes | `hardware.py` reports physical cores, cgroup quota and a recommendation (physical cores within the quota, minus the post lane) with the compute lane's capabilities. The setup page uses it unless Advanced sets processes. `compose.yaml` defaults to no CPU cap (`GUSTSIM_CPUS=0`) |
+| The streamlined body met every residual target at iteration 150, yet was reported as "loads did not settle" | The force detector needs 200 iterations of history before it judges anything | `Detector.accept_residual_stop`: when the solver stops on its residual targets, the loads are judged on the tail (same drift test) and that tail becomes the averaging window. Covered by `test_steady_core.py` |
+| Every real mesh waited for a manual review: the wing had 4 small-determinant cells and 8 low-weight faces out of 720,143 cells | Any extended-diagnostics finding other than concave cells meant "review" | Small determinant, low interpolation weight and skewed faces are information when they affect at most 0.01 % of the cells; anything more, or any other failure, still needs review. Covered by `test_mesh_evidence.py` |
+
+**Data:** nothing was deleted.
+- The 30 old smoke-test and demo simulations in the user's volume were archived (`PATCH archived: true`); "Show archived" on the dashboard lists them again.
+- Five old demo drafts were hidden with the new draft `archived` flag (the dashboard's "Hide draft" button). Opening and saving a draft unhides it.
+
+**Dev note:** the Vite dev server sometimes reloads the page mid-request after re-optimising dependencies, which can leave a query pending. Check loading behaviour against the built `dist/`.

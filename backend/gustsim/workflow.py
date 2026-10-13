@@ -197,25 +197,36 @@ def layer_coverage(text):
     therefore drag. Without this the app can only repeat the request back at the user.
     """
     import re
-    header = re.search(r'^patch\s+faces\s+layers.*$', text, re.M)
-    if not header:
+    # snappyHexMesh prints a planning table before layer addition and the achieved table after;
+    # v2606's final table has a second header line ("target  mesh  [m]  [%]"). Read the last one.
+    headers = list(re.finditer(r'^patch\s+faces\s+layers.*$', text, re.M))
+    if not headers:
         return None
-    patches = []
-    for line in text[header.end():].splitlines():
+    patches, achieved_columns = [], False
+    for line in text[headers[-1].end():].splitlines():
         stripped = line.strip()
-        if not stripped or stripped.startswith(('near-wall', '-----')):
+        if not stripped or stripped.startswith(('near-wall', '-----', '[')):
+            continue
+        if stripped.startswith('target'):
+            achieved_columns = True  # columns: patch faces target mesh thickness[m] thickness[%]
             continue
         parts = stripped.split()
         if len(parts) < 3:
             break
         try:
-            faces, layers = int(parts[1]), float(parts[2])
+            faces = int(parts[1])
+            layers = float(parts[3]) if achieved_columns and len(parts) >= 4 else float(parts[2])
         except ValueError:
             break
         entry = {'patch': parts[0], 'faces': faces, 'layers': layers}
-        if len(parts) >= 5:
-            try: entry['near_wall_thickness_m'], entry['overall_thickness_m'] = float(parts[3]), float(parts[4])
-            except ValueError: pass
+        try:
+            if achieved_columns and len(parts) >= 6:
+                entry['requested_layers'] = float(parts[2])
+                entry['overall_thickness_m'], entry['thickness_fraction'] = float(parts[4]), float(parts[5])/100
+            elif len(parts) >= 5:
+                entry['near_wall_thickness_m'], entry['overall_thickness_m'] = float(parts[3]), float(parts[4])
+        except ValueError:
+            pass
         patches.append(entry)
     if not patches:
         return None
@@ -224,6 +235,70 @@ def layer_coverage(text):
     return {'patches': patches, 'mean_layers': achieved,
             'min_layers': min(p['layers'] for p in patches),
             'faces': total}
+
+
+# checkMesh -allGeometry flags concave cells on practically every snappyHexMesh mesh (cut cells
+# at the surface); with the explicit quality limits passed they are information, not a defect.
+ADVISORY_DIAGNOSTICS = ('concave cells',)
+# Findings that are information when they touch only a few isolated cells or faces.
+ISOLATED_DIAGNOSTICS = ('small determinant', 'small interpolation weight', 'highly skew faces')
+ISOLATED_FRACTION = 1e-4
+
+
+def extended_diagnostics(text):
+    """(status, detail) for `checkMesh -allTopology -allGeometry` output: 'unavailable' without a
+    log, 'pass' when clean, 'info' when only concave cells or a few isolated cells/faces were
+    reported, and 'review' for anything else (orientation, many skewed faces, ...)."""
+    import re
+    if not text:
+        return 'unavailable', 'Extended topology and geometry diagnostics were not run'
+    if 'Failed ' not in text:
+        return ('pass' if 'Mesh OK.' in text else 'unavailable'), 'Extended topology and geometry diagnostics'
+    problems = [line.strip(' *<') for line in text.splitlines() if line.lstrip().startswith('***')]
+    total = re.search(r'^\s*cells:\s+(\d+)', text, re.M)
+    total = int(total.group(1)) if total else None
+
+    def isolated(problem):
+        # A handful of cut cells with a small determinant, low interpolation weight or a skewed
+        # boundary face is normal snappyHexMesh output at sharp edges; the explicit limits are
+        # checked separately. Only a count at most ISOLATED_FRACTION of the cells is advisory.
+        low = problem.lower()
+        if not any(k in low for k in ISOLATED_DIAGNOSTICS) or not total:
+            return False
+        count = re.search(r'number of (?:cells|faces):\s*(\d+)', problem) or re.search(r'(\d+) highly skew faces', problem)
+        return bool(count) and int(count.group(1)) <= ISOLATED_FRACTION*total
+
+    advisory = [p for p in problems if any(a in p.lower() for a in ADVISORY_DIAGNOSTICS) or isolated(p)]
+    others = [p for p in problems if p not in advisory]
+    if problems and not others:
+        counts = ', '.join(re.sub(r'\s+', ' ', p) for p in advisory)
+        return 'info', (f'Extended diagnostics: {counts}. Concave cells, and a few isolated cells or faces (at most '
+                        f'{ISOLATED_FRACTION:.2%} of the cells), are normal where snappyHexMesh cuts cells at the surface; '
+                        'the explicit solver mesh-quality limits are checked separately.')
+    listed = '; '.join(re.sub(r'\s+', ' ', p) for p in (others or problems)[:4])
+    return 'review', f'Extended diagnostics need review: {listed or "see the log"}. Inspect logs/mesh_diagnostics.log.'
+
+
+def quality_limits(text):
+    """(passed, detail) for `checkMesh -meshQuality` against the explicit limits.
+
+    checkMesh's generic geometry test flags any face with skewness above 4, boundary faces
+    included, while the explicit limits (meshQualityDict, the same ones snappyHexMesh enforces)
+    allow 4 on internal and 20 on boundary faces. When the generic test fails only on skewness and
+    the explicit section reports no face in error, the extra faces are boundary faces inside the
+    explicit limit, so the limits pass; the detail says so instead of hiding it."""
+    import re
+    if 'Mesh OK.' in text:
+        return True, 'Explicit OpenFOAM mesh-quality limits'
+    section = text.split('Checking faces in error', 1)
+    counts = [int(n) for n in re.findall(r':\s*(\d+)\s*$', section[1], re.M)] if len(section) == 2 else []
+    flagged = [line.strip(' *') for line in text.splitlines() if line.lstrip().startswith('***')]
+    if counts and not any(counts) and flagged and all('skew' in line.lower() for line in flagged):
+        worst = re.search(r'Max skewness = ([\d.eE+-]+), (\d+) highly skew', text)
+        what = f'{worst.group(2)} boundary faces with skewness up to {float(worst.group(1)):.3g}' if worst else 'Some boundary faces'
+        return True, (f'Explicit OpenFOAM mesh-quality limits pass. {what} exceed checkMesh\'s generic limit of 4 '
+                      'but are within the boundary limit of 20 that snappyHexMesh and the solver template use.')
+    return False, 'Explicit OpenFOAM mesh-quality limits'
 
 
 def mesh_evidence(case, spec, boundary_ok, preview_ok, rotation_ok):
@@ -235,12 +310,12 @@ def mesh_evidence(case, spec, boundary_ok, preview_ok, rotation_ok):
     from .foam_elements import needs_toposet
     zoned = needs_toposet(spec)
     findings = [
-        {'code':'mesh_quality', 'status':'pass' if 'Mesh OK.' in primary else 'fail', 'detail':'Explicit OpenFOAM mesh-quality limits', 'log':'logs/check.log'},
+        {'code':'mesh_quality', 'status':'pass' if quality_limits(primary)[0] else 'fail', 'detail':quality_limits(primary)[1], 'log':'logs/check.log'},
         {'code':'mesh_boundaries', 'status':'pass' if boundary_ok else 'fail', 'detail':'Every configured boundary is present and has faces'},
         {'code':'mesh_preview', 'status':'pass' if preview_ok else 'unavailable', 'detail':'Section of actual volume cells; preview failure does not imply mesh-quality failure'},
         {'code':'mesh_rotation', 'status':('pass' if rotation_ok else 'fail') if zoned else 'info',
          'detail':('Nonempty rotor cell zone' if spec.rotation.enabled and not (spec.elements.rotating_zones or spec.elements.porous) else 'Every rotating and porous zone has cells') if zoned else 'No rotating region requested'},
-        {'code':'mesh_extended', 'status':'review' if 'Failed ' in extended else 'pass' if 'Mesh OK.' in extended else 'unavailable', 'detail':'Extended topology and geometry diagnostics', 'log':'logs/mesh_diagnostics.log'},
+        {'code':'mesh_extended', 'status':extended_diagnostics(extended)[0], 'detail':extended_diagnostics(extended)[1], 'log':'logs/mesh_diagnostics.log'},
     ]
     coverage = layer_coverage(meshing)
     requested = spec.mesh.layers

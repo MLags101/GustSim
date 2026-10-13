@@ -96,8 +96,13 @@ export function NewSimulationDialog({ open, onOpenChange }: { open: boolean; onO
       </div>}
       {tab === 'samples' && <div className="grid gap-3 sm:grid-cols-2">
         {(samples.data || []).map((s) => <button key={s.id} onClick={() => sample(s.id, s.name)} className="card card-pad text-left transition hover:border-accent hover:shadow-md">
-          <div className="flex items-center justify-between"><span className="font-semibold">{s.name}</span><span className="chip">{s.use_case === 'pipe' ? 'Internal flow' : 'External flow'}</span></div>
+          <div className="flex items-center justify-between gap-2"><span className="font-semibold">{s.name}</span>
+            <span className="chip shrink-0">{s.use_case === 'pipe' ? 'Internal flow' : s.use_case === 'propeller' ? 'Rotor' : 'External flow'}</span></div>
           <p className="hint mt-1.5">{s.description}</p>
+          {(s.shows?.length || s.minutes) ? <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+            {s.shows?.map((item) => <span key={item} className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent-ink">{item}</span>)}
+            {s.minutes && <span className="ml-auto text-[11px] text-muted">typically ≈ {s.minutes} min (estimate)</span>}
+          </div> : null}
         </button>)}
       </div>}
       {tab === 'library' && <div className="max-h-[50vh] space-y-1.5 overflow-y-auto scrollbar-thin">

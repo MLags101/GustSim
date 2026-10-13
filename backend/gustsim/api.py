@@ -204,6 +204,14 @@ def validate(spec:SimulationSpec):
 @app.post('/api/presets/preview')
 def preset_preview(request:PresetRequest): return presets.generate(request)
 
+@app.post('/api/geometry/{identifier}/rotor-detect')
+def rotor_detect(identifier:str,body:dict):
+    """Spin axis, centre and rotating-region size of the selected rotor surfaces (a suggestion)."""
+    from . import rotors
+    patches=body.get('patches') or []
+    if not isinstance(patches,list) or not all(isinstance(p,str) for p in patches):raise ValueError('patches must be a list of surface names')
+    return rotors.detect(identifier,patches)
+
 @app.post('/api/geometry/{identifier}/rotor-suggestion')
 def rotor_suggestion(identifier:str, request:RotorSuggestion): return presets.rotor_suggestion(identifier,request)
 

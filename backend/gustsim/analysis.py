@@ -7,10 +7,13 @@ from . import db
 from .models import ViewSpec
 
 
-def pipe_metrics(case, spec, fluxes, pressures):
-    from .quality import latest_table
-    inlet=[b.patch for b in spec.boundaries if b.kind in {'velocity_inlet','flow_inlet','pressure_inlet'}]
-    outlet=[b.patch for b in spec.boundaries if b.kind=='pressure_outlet']
+def pipe_metrics(case, spec, fluxes, pressures, window=None, averaged_values=False):
+    """Pipe measurements. With `averaged_values` (v2) the total-pressure and flux tables are
+    averaged over the same window as the loads instead of taking the last iteration."""
+    from .quality import compiled_boundaries, latest_table, table_value
+    boundaries=compiled_boundaries(spec)
+    inlet=[b.patch for b in boundaries if b.kind in {'velocity_inlet','flow_inlet','pressure_inlet'}]
+    outlet=[b.patch for b in boundaries if b.kind=='pressure_outlet']
     metrics={k:None for k in ('outlet_volume_flow_m3s','outlet_mass_flow_kgs','inlet_pressure_pa','outlet_pressure_pa','total_pressure_loss_pa','head_loss_m')}
     findings=[]
     if len(inlet)!=1 or len(outlet)!=1: return metrics,findings,'Requires one inlet and one outlet'
@@ -20,9 +23,11 @@ def pipe_metrics(case, spec, fluxes, pressures):
     for patch in (a,b):
         rows=latest_table(case,f'postProcessing/totalpressure_{patch}/*/surfaceFieldValue.dat')
         absolute=latest_table(case,f'postProcessing/absoluteFlux_{patch}/*/surfaceFieldValue.dat')
-        if rows and len(rows[-1])>=2 and np.isfinite(rows[-1][1]): totals[patch]=rows[-1][1]
-        if absolute and len(absolute[-1])>=2 and patch in fluxes:
-            reverse |= absolute[-1][1]-abs(fluxes[patch]) > max(1e-12,absolute[-1][1]*1e-6)
+        total=table_value(rows,window,averaged_values)
+        if total is not None and np.isfinite(total): totals[patch]=total
+        magnitude=table_value(absolute,window,averaged_values)
+        if magnitude is not None and patch in fluxes:
+            reverse |= magnitude-abs(fluxes[patch]) > max(1e-12,magnitude*1e-6)
         else: missing=True
     directional=fluxes.get(a,0)<-1e-12 and fluxes.get(b,0)>1e-12
     reason='Full-resolution total-pressure or directional flux evidence unavailable'

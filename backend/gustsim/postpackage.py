@@ -22,6 +22,12 @@ from foamread import cleanup as foam_cleanup, foam_file  # noqa: E402
 SURFACE_BUDGET_TRIANGLES = 300_000
 CLOUD_TRIANGLES = 250_000
 SECTION_LONGEST = 160
+# Near-wall velocity: |U| averaged over samples at these fractions of the reference length off
+# the surface. Closer in, the sample sits inside the steep boundary-layer gradient and follows
+# the cell layering (visible banding) instead of the flow just outside the wall.
+NEAR_WALL_OFFSETS = (0.015, 0.02, 0.025)
+# Seeds per streamline rake; the viewer thins them with its line-density slider.
+RAKE_SEEDS = 81
 ANIMATION_BUDGET_BYTES = 80*1024*1024
 
 
@@ -47,6 +53,8 @@ class Package:
         (self.core, self.data, self.filters, self.general, self.geometry, self.flow, self.sources,
          self.iogeometry, self.xml, self.np) = vtk()
         self.rho = float(plan['rho'])
+        # Single-phase solvers write kinematic p (m²/s²); interFoam writes p in Pa already.
+        self.pressure_is_kinematic = bool(plan.get('pressure_is_kinematic', True))
         self.u_inf = np.asarray(plan['u_inf'], float)
         self.speed = float(np.linalg.norm(self.u_inf))
         self.q_kin = 0.5*self.speed**2
@@ -133,8 +141,14 @@ class Package:
             if name not in names:
                 attributes.RemoveArray(name)
 
+    def kinematic(self, p):
+        """Pressure as kinematic p (m²/s²) whatever the solver wrote, or None."""
+        if p is None:
+            return None
+        return p if self.pressure_is_kinematic else p/self.rho
+
     def derive_surface(self, attributes):
-        p = self.get(attributes, 'p')
+        p = self.kinematic(self.get(attributes, 'p'))
         if p is not None:
             self.put(attributes, 'pressure_pa', p*self.rho)
             cp = self.get(attributes, 'Cp')
@@ -162,7 +176,7 @@ class Package:
 
     def derive_volume(self, attributes):
         u = self.get(attributes, 'U')
-        p = self.get(attributes, 'p')
+        p = self.kinematic(self.get(attributes, 'p'))
         if u is not None:
             self.put(attributes, 'U_mag', np.linalg.norm(u, axis=1))
         if p is not None:
@@ -225,7 +239,7 @@ class Package:
         append = self.filters.vtkAppendPolyData()
         part_of = self.plan.get('patch_parts', {})
         names = sorted(self.patches)
-        faces = {k: [] for k in ('centroid', 'normal', 'area', 'part_index', 'patch_index', 'Cp', 'pressure_pa', 'wall_shear_pa', 'yPlus', 'sensitivity')}
+        faces = {k: [] for k in ('centroid', 'normal', 'area', 'part_index', 'patch_index', 'Cp', 'pressure_pa', 'wall_shear_pa', 'yPlus', 'sensitivity', 'alpha_water')}
         for index, name in enumerate(names):
             triangles = self.filters.vtkTriangleFilter()
             triangles.SetInputData(self.patches[name])
@@ -271,12 +285,59 @@ class Package:
             decimate.AttributeErrorMetricOn()
             decimate.Update()
             surface = decimate.GetOutput()
-        self.keep(surface.GetPointData(), {'Cp', 'pressure_pa', 'wall_shear_pa', 'wall_shear_mag', 'Cf', 'yPlus', 'sensitivity', 'alpha_water'})
+        try:
+            self.near_wall_velocity(surface)
+        except Exception as e:
+            self.missing.append({'id': 'near_wall_velocity', 'reason': str(e) or e.__class__.__name__})
+        self.keep(surface.GetPointData(), {'Cp', 'pressure_pa', 'wall_shear_pa', 'wall_shear_mag', 'Cf', 'yPlus', 'sensitivity', 'alpha_water', 'U_near_mag'})
         self.keep(surface.GetCellData(), {'part_index', 'patch_index', 'Cp', 'pressure_pa', 'wall_shear_mag', 'Cf', 'yPlus', 'sensitivity', 'alpha_water'})
         self.object_surface = surface
-        self.layer('surface', 'surface', surface, 'surface/object.vtp', patch_names=names)
+        self.layer('surface', 'surface', surface, 'surface/object.vtp', patch_names=names,
+                   near_wall_offset_m=getattr(self, 'near_wall_offset_m', None))
         np.savez_compressed(self.out/'surface/object_faces.npz', patch_names=np.asarray(names),
                             **{k: np.concatenate(v) for k, v in faces.items() if v})
+
+    def near_wall_velocity(self, surface):
+        """|U| a short distance off the wall (the wall velocity is zero): each point is moved along
+        its outward normal by each of NEAR_WALL_OFFSETS of the reference length, probed in the
+        volume, and the valid samples are averaged."""
+        if self.volume.GetPointData().GetArray('U') is None:
+            raise RuntimeError('U was not written by this solve')
+        points = self.np.vtk_to_numpy(surface.GetPoints().GetData()).astype(float)
+        connectivity = self.np.vtk_to_numpy(surface.GetPolys().GetConnectivityArray()).reshape(-1, 3)
+        tri = points[connectivity]
+        # Boundary faces point into the body (out of the fluid); negate for the fluid side.
+        face = -np.cross(tri[:, 1]-tri[:, 0], tri[:, 2]-tri[:, 0])
+        normal = np.zeros_like(points)
+        for k in range(3):
+            np.add.at(normal, connectivity[:, k], face)
+        normal /= np.maximum(np.linalg.norm(normal, axis=1), 1e-300)[:, None]
+        offsets = [f*self.length for f in NEAR_WALL_OFFSETS]
+        probe_points = self.core.vtkPoints()
+        stacked = np.concatenate([points + d*normal for d in offsets])
+        probe_points.SetData(self.np.numpy_to_vtk(np.ascontiguousarray(stacked), deep=1))
+        source = self.data.vtkPolyData()
+        source.SetPoints(probe_points)
+        locator = self.data.vtkStaticCellLocator()
+        probe = self.filters.vtkProbeFilter()
+        probe.SetInputData(source)
+        probe.SetSourceData(self.volume)
+        probe.SetCellLocatorPrototype(locator)
+        probe.Update()
+        output = probe.GetOutput()
+        u = self.get(output.GetPointData(), 'U')
+        valid = self.get(output.GetPointData(), 'vtkValidPointMask')
+        if u is None or valid is None:
+            raise RuntimeError('The volume could not be probed near the wall')
+        samples = np.where(valid > 0, np.linalg.norm(u, axis=1), np.nan).reshape(len(offsets), len(points))
+        counted = np.isfinite(samples).sum(axis=0)
+        # A sample inside another solid (a narrow gap) is invalid; average whatever lies in fluid.
+        magnitude = np.where(counted > 0, np.nansum(samples, axis=0)/np.maximum(counted, 1), np.nan)
+        if not np.isfinite(magnitude).any():
+            raise RuntimeError('No surface point had fluid within the near-wall offset')
+        offset = offsets[len(offsets)//2]
+        self.put(surface.GetPointData(), 'U_near_mag', magnitude)
+        self.near_wall_offset_m = offset
 
     def friction_lines(self):
         surface = getattr(self, 'object_surface', None)
@@ -453,7 +514,7 @@ class Package:
                     origin = start + side*t*width
                     a, b = origin - lift*0.6*height, origin + lift*0.6*height
                 line = self.sources.vtkLineSource()
-                line.SetPoint1(*a); line.SetPoint2(*b); line.SetResolution(40)
+                line.SetPoint1(*a); line.SetPoint2(*b); line.SetResolution(RAKE_SEEDS - 1)
                 line.Update()
                 tracer = self.flow.vtkStreamTracer()
                 tracer.SetInputData(self.volume)
@@ -474,7 +535,7 @@ class Package:
                 self.keep(lines.GetCellData(), {'SeedIds'})
                 orientation = 'horizontal' if kind == 'h' else 'vertical'
                 record = self.layer(f'rake_{kind}_{i}', 'streamlines', lines, f'rakes/{kind}_{i:02d}.vtp',
-                                    orientation=orientation, offset=float(t), seeds=41)
+                                    orientation=orientation, offset=float(t), seeds=RAKE_SEEDS)
                 made.append(record['id'])
         if not made:
             raise RuntimeError('No streamlines could be traced from the rakes')
@@ -660,7 +721,7 @@ class Package:
                 elif name == 'Cp':
                     if self.q_kin <= 0:
                         continue
-                    values = values/self.q_kin
+                    values = self.kinematic(values)/self.q_kin
                 if cells is None:
                     cells = len(values)
                     base = self.data.vtkPolyData()

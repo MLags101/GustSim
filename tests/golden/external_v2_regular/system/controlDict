@@ -32,5 +32,4 @@ pressureCoefficient { type pressure; libs (fieldFunctionObjects); mode staticCoe
 totalPressureCoefficient { type pressure; libs (fieldFunctionObjects); mode totalCoeff; result Cpt; rho rhoInf; rhoInf 1.204; pRef 0; pInf 0; UInf (-20 -0 -2.44929359829e-15); writeControl writeTime; errors warn; }
 Qcriterion { type Q; libs (fieldFunctionObjects); writeControl writeTime; errors warn; }
 vorticityField { type vorticity; libs (fieldFunctionObjects); writeControl writeTime; errors warn; }
-noiseEstimate { type proudmanAcousticPower; libs (fieldFunctionObjects); alphaEps 0.1; rhoInf 1.204; aRef 343.0; writeControl writeTime; errors warn; }
-gustsimStop { type abort; libs (utilityFunctionObjects); file "<case>/gustsim.stop"; action writeNow; } }
+noiseEstimate { type proudmanAcousticPower; libs (fieldFunctionObjects); alphaEps 0.1; rhoInf 1.204; aRef 343.0; writeControl writeTime; errors warn; } }
