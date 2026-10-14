@@ -192,15 +192,21 @@ def test_adaptive_indicator_uses_each_cells_own_size():
 
 
 # ---- 6: experimental numerics ------------------------------------------------------------------------
-def test_tiers_leave_experimental_numerics_off_and_opt_in_needs_acknowledgement():
+def test_tiers_switch_nothing_experimental_on_and_amr_opt_in_needs_acknowledgement():
     g, spec = aero(tier='basic')
     report = validation.validate(spec)
     assert not spec.convergence.enabled and spec.mesh.adaptive_cycles == 0
     assert report['physics_maturity'] == 'core' and not report['experimental_features']
+    # Early stopping passed its gate (benchmarks/results/early_stop_consistency.json) and is core.
     spec.convergence.enabled = True
     report = validation.validate(spec)
-    assert 'early_stop' in report['experimental_features'] and report['physics_maturity'] == 'experimental'
-    assert any(f['code'] == 'experimental_physics' and f['status'] == 'review' for f in report['findings'])
+    assert report['physics_maturity'] == 'core' and 'early_stop' not in report['experimental_features']
+    # Adaptive refinement is still experimental: opting in needs the acknowledgement.
+    if 'adaptive_mesh' in validation.COMPILED_FEATURES:
+        spec.mesh.adaptive_cycles = 1
+        report = validation.validate(spec)
+        assert 'adaptive_mesh' in report['experimental_features'] and report['physics_maturity'] == 'experimental'
+        assert any(f['code'] == 'experimental_physics' and f['status'] == 'review' for f in report['findings'])
 
 
 # ---- 7, 8: wheels -----------------------------------------------------------------------------------

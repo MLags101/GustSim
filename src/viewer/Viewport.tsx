@@ -80,6 +80,9 @@ interface Props {
   /** Streamline layers whose particles are animated, and particles per typical streamline. */
   tracerLayers?: string[] | null;
   tracerDensity?: number;
+  /** Particle size in CSS pixels and colour (RGB 0–1); chosen to contrast with the streamlines. */
+  tracerSize?: number;
+  tracerColor?: [number, number, number];
   label?: string;
   onLoading?: (loading: boolean) => void;
   onError?: (message: string | null) => void;
@@ -503,7 +506,7 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport(prop
   useEffect(() => { const handle = scene.current; if (handle) updateAnchors(handle, latest.current); }, [ready, anchorsKey]);
 
   // --- steady streamline tracer playback ------------------------------------------------------
-  const tracerKey = JSON.stringify([props.tracerLayers || [], props.tracerDensity ?? 10]);
+  const tracerKey = JSON.stringify([props.tracerLayers || [], props.tracerDensity ?? 10, props.tracerSize ?? 7, props.tracerColor || null]);
   useEffect(() => {
     const handle = scene.current;
     const layerIds = props.tracerLayers || [];
@@ -521,9 +524,9 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport(prop
     particles.getVerts().setData(verts);
     const mapper = vtkMapper.newInstance(); mapper.setInputData(particles); mapper.setScalarVisibility(false);
     const actor = vtkActor.newInstance(); actor.setMapper(mapper);
-    actor.getProperty().setColor(1, 0.82, 0.2); actor.getProperty().setAmbient(1); actor.getProperty().setDiffuse(0);
-    // Point size is in device pixels; keep particles about 3 CSS px on any display.
-    actor.getProperty().setPointSize(3 * (window.devicePixelRatio || 1));
+    actor.getProperty().setColor(...(props.tracerColor || [0.07, 0.09, 0.15])); actor.getProperty().setAmbient(1); actor.getProperty().setDiffuse(0);
+    // Point size is in device pixels; scale so the CSS size is the same on any display.
+    actor.getProperty().setPointSize((props.tracerSize ?? 7) * (window.devicePixelRatio || 1));
     actor.setPickable(false);
     handle.renderer.addActor(actor);
     const began = performance.now();

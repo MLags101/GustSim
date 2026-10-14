@@ -22,6 +22,9 @@ COPY pyproject.toml ./
 COPY constraints.txt ./
 COPY backend ./backend
 COPY examples ./examples
+# Benchmark gate results: /api/capabilities reports gate status from these files.
+COPY benchmarks/results ./benchmarks/results
+ENV GUSTSIM_BENCHMARK_RESULTS=/app/benchmarks/results
 RUN pip install --no-cache-dir -c constraints.txt '.[cad]' && useradd -u 1000 -m gustsim && mkdir /data && chown gustsim /data
 COPY --from=web /app/dist ./dist
 # Single-file viewer embedded in offline shared reports (GET /api/runs/{id}/export/share).

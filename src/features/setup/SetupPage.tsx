@@ -251,8 +251,8 @@ function AccuracySection({ s }: { s: SetupState }) {
     </div>}
     <div className="rounded-xl border border-line bg-surface-2 p-3">
       <label className="flex items-center justify-between gap-3 text-sm font-semibold text-ink-2">
-        <span className="flex items-center gap-2">Stop when the forces converge <ExperimentalBadge /></span>
-        <Switch checked={!!s.overrides.early_stop} onChange={(early_stop) => s.setOverrides({ early_stop })} label="Stop when the forces converge" />
+        <span className="flex items-center gap-2">Stop when the forces converge {s.earlyStopMaturity !== 'core' && <ExperimentalBadge />}</span>
+        <Switch checked={!!(s.spec as any)?.convergence?.enabled} onChange={(early_stop) => s.setOverrides({ early_stop })} label="Stop when the forces converge" />
       </label>
       <p className="hint mt-1">Ends the solve once drag and lift settle and averages them over a window, often well before the iteration limit. Off, the solve runs the full {significant((s.spec as any)?.solver?.iterations, 4)} iterations and still reports the converged-window average.</p>
     </div>

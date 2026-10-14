@@ -42,7 +42,7 @@ Interactive browser QA completed conservative preparation of a sphere, guided ex
 | Potsdam VP1304 | Thrust and torque ≤10% from measured data at three nonzero operating points | Not executed |
 | Three-grid study | Primary load change <5% between finest two meshes | Not executed |
 | Domain sensitivity | Documented sensitivity of primary outputs to larger domain | Not executed |
-| Early-stop consistency | Early-stopped coefficients within 1% of the full-budget window average | Not executed. Until it passes, early stopping is opt-in and labelled experimental (2026-10-12); accuracy tiers no longer enable it or AMR. |
+| Early-stop consistency | Early-stopped coefficients within 1% of the full-budget window average | **Passed 2026-10-13** (`benchmarks/results/early_stop_consistency.json`). Two full-budget cases, replayed with `scripts/early_stop_gate.py`: drone propeller in an 8 m/s climb (thrust 0.027 %, torque 0.011 %, would stop at 540 of 2000) and Ahmed body 25° (drag 0.063 %, lift 0.085 %, would stop at 760 of 2000). Two non-converging runs (hover propeller, sphere) never trigger a stop. Early stopping is now core and on by default in the setup page. |
 | Flat-plate Cf | Laminar Cf within 5% of Blasius | Not executed |
 | Multi-zone Couette | Each MRF zone's profile within 2% | Not executed |
 | Porous duct | Δp within 2% of the two-point curve | Not executed |

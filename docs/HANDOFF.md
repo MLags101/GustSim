@@ -304,9 +304,12 @@ This pass follows the user's test notes. `docs/DESIGN.md` records the AirShaper 
   - `mapFields -consistent`.
   - The free-surface half model is rejected.
   - Adjoint scheme names checked.
-- **Experimental numerics (AGENTS.md):** force-based early stopping and AMR count as experimental. Tiers no longer switch them on.
-  - The Accuracy step has an opt-in switch, "Stop when the forces converge", and a run that uses it carries the experimental label.
-  - The v2 golden `external_v2_regular/system/controlDict` changed for this reason. The v1 goldens are unchanged.
+- **Early stopping passed its gate and is core (2026-10-13).**
+  - `scripts/early_stop_gate.py` replays the live detector on full-budget force histories. The measurements are in `benchmarks/measurements/`, and `benchmarks/results/early_stop_consistency.json` passed: two cases, worst error 0.085 % against the 1 % tolerance.
+  - The setup page reads the maturity from `/api/capabilities` and switches early stopping on by default; users can switch it off.
+  - Tiers stay neutral, so runs created through the API without the setup page keep the model default (off).
+- **AMR is still experimental** and opt-in. Tiers never switch it on.
+  - Tiers no longer enable early stopping server-side either, which is why the v2 golden `external_v2_regular/system/controlDict` changed. The v1 goldens are unchanged.
 
 **Demos** (`samples.py`, `tests/test_samples.py`)
 - Seven built-in demos: streamlined body (first run), road car with wheels on a moving ground, Ahmed body, wing (planform reference area), drone propeller in an 8 m/s climb, tower in wind (transient) and radiator in a duct.
@@ -329,6 +332,7 @@ This pass follows the user's test notes. `docs/DESIGN.md` records the AirShaper 
 | The wing reported Cl 2.45 | The generic preset references the frontal area (≈0.06 m²) | The wing demo uses its 0.25 m² planform and 0.25 m chord, giving Cl ≈ 0.36 |
 | The hover probe never showed a value | vtk.js freezes its objects. Caching the cell index on the dataset (`poly.__gustsimCells = true`) threw, the `catch` returned no point IDs, and every probe value was `null`. GPU picking itself always worked | The cell-offset cache is a `WeakMap` beside the dataset. `e2e/journey.spec.ts` hovers the model and expects the readout |
 | Solves used 4 MPI ranks on a 10-core machine | Worker capped at `cpus: 6` and a fixed default of 4 processes | `hardware.py` reports physical cores, cgroup quota and a recommendation (physical cores within the quota, minus the post lane) with the compute lane's capabilities. The setup page uses it unless Advanced sets processes. `compose.yaml` defaults to no CPU cap (`GUSTSIM_CPUS=0`) |
+| `/api/capabilities` reported every gate as `not_executed` inside Docker | The images install the package into site-packages, so `capabilities.RESULTS` pointed at `/usr/local/lib/python3.12/benchmarks/results`, and `benchmarks/results` was not copied into the images | Both Dockerfiles copy `benchmarks/results` and set `GUSTSIM_BENCHMARK_RESULTS` |
 | The streamlined body met every residual target at iteration 150, yet was reported as "loads did not settle" | The force detector needs 200 iterations of history before it judges anything | `Detector.accept_residual_stop`: when the solver stops on its residual targets, the loads are judged on the tail (same drift test) and that tail becomes the averaging window. Covered by `test_steady_core.py` |
 | Every real mesh waited for a manual review: the wing had 4 small-determinant cells and 8 low-weight faces out of 720,143 cells | Any extended-diagnostics finding other than concave cells meant "review" | Small determinant, low interpolation weight and skewed faces are information when they affect at most 0.01 % of the cells; anything more, or any other failure, still needs review. Covered by `test_mesh_evidence.py` |
 

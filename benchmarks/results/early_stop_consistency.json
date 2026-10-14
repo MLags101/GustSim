@@ -1,0 +1,65 @@
+{
+  "gate": "early_stop_consistency",
+  "benchmark": "early_stop_consistency",
+  "status": "passed",
+  "passed": true,
+  "tolerance": 0.01,
+  "tolerances": {
+    "Drone propeller in climb thrust_n": 0.01,
+    "Drone propeller in climb torque_nm": 0.01,
+    "Ahmed body (25\u00b0 slant) drag_n": 0.01,
+    "Ahmed body (25\u00b0 slant) lift_n": 0.01
+  },
+  "normalized_errors": {
+    "Drone propeller in climb thrust_n": 0.0002671978110870192,
+    "Drone propeller in climb torque_nm": 0.00011223094930184262,
+    "Ahmed body (25\u00b0 slant) drag_n": 0.0006294427770509294,
+    "Ahmed body (25\u00b0 slant) lift_n": 0.0008541542709534269
+  },
+  "provenance": {
+    "method": "Detector replay on recorded full-budget force histories (scripts/early_stop_gate.py)",
+    "cases": [
+      {
+        "run_id": "9715042390ffbf4ac57ee85b9bc72c8c",
+        "name": "Drone propeller in climb",
+        "budget": 2000,
+        "final_iteration": 2000.0,
+        "detector_state": "converged",
+        "detected_at": 340.0,
+        "stopped_at": 540.0,
+        "iterations_saved": 1460.0
+      },
+      {
+        "run_id": "76e55abbb5b36475753d8a2073a6af2b",
+        "name": "Ahmed body (25\u00b0 slant)",
+        "budget": 2000,
+        "final_iteration": 2000.0,
+        "detector_state": "converged",
+        "detected_at": 560.0,
+        "stopped_at": 760.0,
+        "iterations_saved": 1240.0
+      },
+      {
+        "run_id": "a866d54e71a0517e3a88f93db374068b",
+        "name": "Drone propeller in hover",
+        "budget": 2000,
+        "final_iteration": 2000.0,
+        "detector_state": "iteration_limit",
+        "detected_at": null,
+        "stopped_at": 2000.0,
+        "note": "The detector never declared convergence: early stopping would have run the full budget"
+      },
+      {
+        "run_id": "c2544756b2791d9ab010a773eca3aa76",
+        "name": "First run: sphere",
+        "budget": 2000,
+        "final_iteration": 2000.0,
+        "detector_state": "iteration_limit",
+        "detected_at": null,
+        "stopped_at": 2000.0,
+        "note": "The detector never declared convergence: early stopping would have run the full budget"
+      }
+    ]
+  },
+  "scope": "Agreement with supplied measurements and conditions; does not certify other cases"
+}

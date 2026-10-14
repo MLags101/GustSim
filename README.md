@@ -67,7 +67,7 @@ The interface follows AirShaper's flow: a simulations dashboard, a one-page setu
 
 **Rotors:** one steady MRF cylinder encloses the selected complete rotor components. Confirm axis and origin before suggesting cylinder dimensions. Signed RPM follows the right-hand rule. The cylinder is rotating fluid, never a solid wall. Other components stay stationary. MRF predicts mean loads at a fixed rotor position, not moving blades through time.
 
-**Progress:** mesh percentages estimate phases, rather than predicting remaining time. Solve progress uses the actual iteration budget. It finishes early on force convergence only when you switch on the experimental "Stop when the forces converge" option in the Accuracy step. A failed job never displays 100% completion.
+**Progress:** mesh percentages estimate phases, rather than predicting remaining time. Solve progress uses the actual iteration budget. By default a solve stops once the forces have converged and their average has settled ("Stop when the forces converge" in the Accuracy step; switch it off to run the full budget). A failed job never displays 100% completion.
 
 **Difficult assemblies:** if Auto prepare cannot close a model — parts that touch, overlap or leave gaps, which is the usual reason a real STEP assembly will not mesh — use **Close a difficult assembly** in Geometry. Wrapping builds a new closed surface around the model on a uniform grid. It is an approximation: detail finer than one cell is lost and openings narrower than the seal distance are closed. The revision is labelled as wrapped, and that label follows every run, report and export made from it. Geometry that is closed but non-manifold where parts meet no longer blocks meshing; it is reported as a review item.
 

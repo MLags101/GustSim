@@ -5,11 +5,14 @@ only by editing this table after its gates have passed (benchmarks/results/<gate
 nothing is promoted automatically, and a passed smoke test is never a gate.
 """
 import json
+import os
 import shutil
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-RESULTS = ROOT / 'benchmarks' / 'results'
+# Gate results: the source tree's benchmarks/results, or GUSTSIM_BENCHMARK_RESULTS where the
+# package is installed elsewhere (the images install it into site-packages).
+RESULTS = Path(os.environ.get('GUSTSIM_BENCHMARK_RESULTS') or ROOT / 'benchmarks' / 'results')
 
 CAPABILITIES = {
     'steady_external': {'label': 'Steady external aerodynamics', 'maturity': 'core', 'gates': ['naca0012', 'mesh_study', 'domain_sensitivity'], 'probe': ['simpleFoam', 'snappyHexMesh']},
@@ -19,7 +22,9 @@ CAPABILITIES = {
     'ground_wheels': {'label': 'Moving ground and rotating wheels', 'maturity': 'experimental', 'gates': ['fackrell_wheel', 'drivaer_ground'], 'probe': ['simpleFoam']},
     'porous': {'label': 'Porous radiators (Darcy-Forchheimer)', 'maturity': 'experimental', 'gates': ['porous_duct'], 'probe': ['topoSet']},
     'openings': {'label': 'Flow openings on the model', 'maturity': 'experimental', 'gates': ['laminar_pipe'], 'probe': ['simpleFoam']},
-    'early_stop': {'label': 'Force-based convergence detection', 'kind': 'numerics', 'maturity': 'experimental', 'gates': ['early_stop_consistency'], 'probe': ['simpleFoam'], 'function_object': 'abort'},
+    # Promoted 2026-10-13 at the user's request: benchmarks/results/early_stop_consistency.json passed
+    # (propeller and Ahmed body, early-stopped loads within 0.09 % of the full-budget averages).
+    'early_stop': {'label': 'Force-based convergence detection', 'kind': 'numerics', 'maturity': 'core', 'gates': ['early_stop_consistency'], 'probe': ['simpleFoam'], 'function_object': 'abort'},
     'adaptive_mesh': {'label': 'Adaptive mesh refinement', 'kind': 'numerics', 'maturity': 'experimental', 'gates': ['mesh_study'], 'probe': ['mapFields']},
     'design_advice': {'label': 'Adjoint design advice (sensitivity maps)', 'maturity': 'experimental', 'gates': ['adjoint_fd'], 'probe': ['adjointOptimisationFoam']},
     'morphing': {'label': 'Adjoint shape morphing', 'maturity': 'experimental', 'gates': ['morph_verification'], 'probe': ['adjointOptimisationFoam']},

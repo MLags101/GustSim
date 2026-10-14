@@ -35,4 +35,4 @@ A passed gate never promotes a capability by itself. Promotion from `experimenta
 | `hydrostatic_box` | Free surface | `reference` | Still water in a box: hydrostatic pressure within 1% |
 | `dtc_resistance` | Free surface | `reference` | DTC hull, calm water: total resistance coefficient within 7% of the towing-tank value |
 
-The analytical evaluators (`pipe`, `rotating_cylinders`, `multi_zone_couette`, `porous_duct`, `early_stop_consistency`, `flat_plate_cf`) and the gate-status contract are unit-tested in `tests/test_benchmarks_backup.py`. **None of these gates has been executed.** Each still needs a reviewed case, a mesh study and measured outputs.
+The analytical evaluators (`pipe`, `rotating_cylinders`, `multi_zone_couette`, `porous_duct`, `early_stop_consistency`, `flat_plate_cf`) and the gate-status contract are unit-tested in `tests/test_benchmarks_backup.py`. `early_stop_consistency` passed on 2026-10-13 (see `benchmarks/measurements/` and `benchmarks/results/`). **No other gate has been executed.** Each still needs a reviewed case, a mesh study and measured outputs.

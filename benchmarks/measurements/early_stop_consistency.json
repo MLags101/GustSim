@@ -1,0 +1,61 @@
+{
+  "benchmark": "early_stop_consistency",
+  "gate": "early_stop_consistency",
+  "early_stop": {
+    "Drone propeller in climb thrust_n": 1.6364761647293533,
+    "Drone propeller in climb torque_nm": 0.05046991497649254,
+    "Ahmed body (25\u00b0 slant) drag_n": 37.19910839535821,
+    "Ahmed body (25\u00b0 slant) lift_n": 37.967682976960205
+  },
+  "full_budget": {
+    "Drone propeller in climb thrust_n": 1.6360390186847078,
+    "Drone propeller in climb torque_nm": 0.05046425132566045,
+    "Ahmed body (25\u00b0 slant) drag_n": 37.17570841421513,
+    "Ahmed body (25\u00b0 slant) lift_n": 37.93528039519084
+  },
+  "provenance": {
+    "method": "Detector replay on recorded full-budget force histories (scripts/early_stop_gate.py)",
+    "cases": [
+      {
+        "run_id": "9715042390ffbf4ac57ee85b9bc72c8c",
+        "name": "Drone propeller in climb",
+        "budget": 2000,
+        "final_iteration": 2000.0,
+        "detector_state": "converged",
+        "detected_at": 340.0,
+        "stopped_at": 540.0,
+        "iterations_saved": 1460.0
+      },
+      {
+        "run_id": "76e55abbb5b36475753d8a2073a6af2b",
+        "name": "Ahmed body (25\u00b0 slant)",
+        "budget": 2000,
+        "final_iteration": 2000.0,
+        "detector_state": "converged",
+        "detected_at": 560.0,
+        "stopped_at": 760.0,
+        "iterations_saved": 1240.0
+      },
+      {
+        "run_id": "a866d54e71a0517e3a88f93db374068b",
+        "name": "Drone propeller in hover",
+        "budget": 2000,
+        "final_iteration": 2000.0,
+        "detector_state": "iteration_limit",
+        "detected_at": null,
+        "stopped_at": 2000.0,
+        "note": "The detector never declared convergence: early stopping would have run the full budget"
+      },
+      {
+        "run_id": "c2544756b2791d9ab010a773eca3aa76",
+        "name": "First run: sphere",
+        "budget": 2000,
+        "final_iteration": 2000.0,
+        "detector_state": "iteration_limit",
+        "detected_at": null,
+        "stopped_at": 2000.0,
+        "note": "The detector never declared convergence: early stopping would have run the full budget"
+      }
+    ]
+  }
+}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api, post, put } from '../../api/client';
-import { qk, useEstimate, useGeometry, useHealth, useProject, useScene, useValidation } from '../../api/queries';
+import { qk, useCapabilities, useEstimate, useGeometry, useHealth, useProject, useScene, useValidation } from '../../api/queries';
 import type { Geometry, SceneData, Spec, Vec3 } from '../../api/types';
 import { configurationKey } from '../../lib/configurationKey';
 
@@ -86,7 +86,7 @@ function presetRequest(geometryId: string, intent: Intent) {
     ground: intent.kind === 'aerodynamics' ? intent.ground || 'none' : 'none', ride_height_m: intent.ride_height_m || 0 };
 }
 
-function applyOverrides(base: Spec, overrides: Overrides, attestation: Attestation | undefined, previewKey: string, projectId: string, name: string, tier: Tier, intent?: Intent, processes?: number): Spec {
+function applyOverrides(base: Spec, overrides: Overrides, attestation: Attestation | undefined, previewKey: string, projectId: string, name: string, tier: Tier, intent?: Intent, processes?: number, earlyStopDefault?: boolean): Spec {
   const spec: any = JSON.parse(JSON.stringify(base));
   spec.project_id = projectId;
   spec.name = name || spec.name;
@@ -102,7 +102,9 @@ function applyOverrides(base: Spec, overrides: Overrides, attestation: Attestati
   if (intent?.fluid === 'multiphase') spec.free_surface = { ...(spec.free_surface || {}), waterline_z: intent.waterline_z ?? 0 };
   else delete spec.free_surface;
   if (overrides.auto_retry !== undefined) spec.solver.auto_retry = overrides.auto_retry;
-  if (overrides.early_stop) spec.convergence = { ...(spec.convergence || {}), enabled: true };
+  // Early stopping: the user's choice, else on by default once the capability is core.
+  const earlyStop = overrides.early_stop ?? earlyStopDefault;
+  if (earlyStop !== undefined) spec.convergence = { ...(spec.convergence || {}), enabled: earlyStop };
   if (tier === 'custom' && overrides.mesh) Object.assign(spec.mesh, overrides.mesh, { tier: 'custom' });
   const e = overrides.elements || {};
   spec.elements = { ...spec.elements, wheels: e.wheels || [], porous: e.porous || [], openings: e.openings || [],
@@ -169,9 +171,12 @@ export function useSetup(projectId: string) {
 
   const health = useHealth();
   const recommendedProcesses = health.data?.worker.lanes?.compute?.capabilities?.hardware?.recommended_processes;
+  const capabilities = useCapabilities();
+  const earlyStopMaturity = capabilities.data?.physics?.early_stop?.maturity;
+  const earlyStopDefault = earlyStopMaturity === 'core' ? true : undefined;
   const spec = useMemo(() => (preview.data?.spec && intent
-    ? applyOverrides(preview.data.spec, overrides, workspace?.attestation, previewKey, projectId, name, intent.tier, intent, recommendedProcesses)
-    : null), [preview.data, overrides, workspace?.attestation, previewKey, projectId, name, intent?.tier, recommendedProcesses]);
+    ? applyOverrides(preview.data.spec, overrides, workspace?.attestation, previewKey, projectId, name, intent.tier, intent, recommendedProcesses, earlyStopDefault)
+    : null), [preview.data, overrides, workspace?.attestation, previewKey, projectId, name, intent?.tier, recommendedProcesses, earlyStopDefault]);
   const specKey = configurationKey(spec);
   const validation = useValidation(spec, specKey);
   const estimate = useEstimate(spec, specKey);
@@ -227,7 +232,7 @@ export function useSetup(projectId: string) {
     return post(`/runs?kind=case`, spec);
   }
 
-  return { project, workspace, name, setName, geometry, scene, intent, overrides, preview, previewError, previewKey, spec, specKey,
+  return { earlyStopMaturity, project, workspace, name, setName, geometry, scene, intent, overrides, preview, previewError, previewKey, spec, specKey,
     validation, report, estimate, attested, reviewNeeded, acknowledged, update, setIntent, setOverrides, attest, acknowledge, switchRevision, launch, launchBatch, caseOnly,
     refreshGeometry: () => api<Geometry>(`/geometry/${workspace?.geometry_id}`) };
 }

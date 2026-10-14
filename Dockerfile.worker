@@ -9,6 +9,9 @@ COPY pyproject.toml ./
 COPY constraints.txt ./
 COPY backend ./backend
 COPY examples ./examples
+# Benchmark gate results: /api/capabilities reports gate status from these files.
+COPY benchmarks/results ./benchmarks/results
+ENV GUSTSIM_BENCHMARK_RESULTS=/app/benchmarks/results
 RUN python3 -m venv --system-site-packages /opt/gustsim && /opt/gustsim/bin/pip install -c constraints.txt . && dpkg-query -W openfoam2606 paraview python3-vtk9 python3-matplotlib ffmpeg > /app/native-versions.txt
 COPY docker/worker-entrypoint.sh /usr/local/bin/gustsim-entrypoint
 COPY docker/pvbatch.sh /usr/local/bin/pvbatch

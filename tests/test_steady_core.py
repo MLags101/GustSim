@@ -40,9 +40,11 @@ def test_tiers_are_monotonic_deterministic_and_bounded():
     opted = spec.model_copy(deep=True); opted.convergence.enabled = True; opted.mesh.adaptive_cycles = 1
     kept = mesh_tiers.resolve(opted, 'advanced')
     assert kept.convergence.enabled and kept.mesh.adaptive_cycles == (1 if 'adaptive_mesh' in validation.COMPILED_FEATURES else 0)
-    assert 'early_stop' in capabilities.experimental_used(kept)
-    report = validation.validate(kept)
-    assert report['physics_maturity'] == 'experimental' and any(f['code'] == 'experimental_physics' for f in report['findings'])
+    assert 'early_stop' not in capabilities.experimental_used(kept), 'early stopping passed its gate and is core'
+    if 'adaptive_mesh' in validation.COMPILED_FEATURES:
+        assert 'adaptive_mesh' in capabilities.experimental_used(kept)
+        report = validation.validate(kept)
+        assert report['physics_maturity'] == 'experimental' and any(f['code'] == 'experimental_physics' for f in report['findings'])
     assert mesh_tiers.resolve(spec, 'regular') == resolved['regular']
     # Custom keeps every mesh setting; only the point inside the fluid may move off a grid plane.
     custom = mesh_tiers.apply(spec)

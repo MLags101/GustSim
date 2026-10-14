@@ -22,7 +22,7 @@ export interface FlowState {
   friction: boolean; objectOpacity: number; probe: boolean;
   volume: VolumeMode; cloudOpacity: number; vortex: string | null; noise: string | null;
   /** Streamlines: orientation, which seed plane (null = all), line density 1–20, particles. */
-  rakes: 'horizontal' | 'vertical'; plane: number | null; lines: number; animate: boolean; particles: number;
+  rakes: 'horizontal' | 'vertical'; plane: number | null; lines: number; animate: boolean; particles: number; particleSize: number;
   section: 'x' | 'y' | 'z'; sectionIndex: number; sectionField: string;
 }
 
@@ -45,7 +45,7 @@ export const defaultFlowState = (manifest?: Manifest | null): FlowState => {
   const axis = (['x', 'y', 'z'] as const).find((a) => layersOf(manifest).some((l) => l.kind === 'section_stack' && l.axis === a)) || 'x';
   return { field, colormap: ARRAY_DEFAULT_MAP[field] || 'cool_to_warm', rangeMode: 'default', fixed: [-1, 1], friction: false, objectOpacity: 1, probe: true,
     volume: 'none', cloudOpacity: 0.55, vortex: q[Math.floor(q.length / 2)]?.id || null, noise: noise[0]?.id || null,
-    rakes: rakesOf(manifest, 'horizontal').length || !rakesOf(manifest, 'vertical').length ? 'horizontal' : 'vertical', plane: -1, lines: 17, animate: false, particles: 12,
+    rakes: rakesOf(manifest, 'horizontal').length || !rakesOf(manifest, 'vertical').length ? 'horizontal' : 'vertical', plane: -1, lines: 17, animate: false, particles: 12, particleSize: 7,
     section: axis, sectionIndex: -1, sectionField: 'U_mag' };
 };
 
@@ -250,7 +250,8 @@ export function FlowTab({ run, manifest, legacy, forces = null }: { run: Run; ma
 
   return <div className="absolute inset-0">
     <ViewerFrame ref={viewer} className="absolute inset-0" layers={viewLayers} bounds={manifest?.bounds.model} presets={manifest?.camera_presets} flow={flow} lift={lift}
-      probeLayer={probeLayer} frames={frames} onProbe={setProbe} tracerLayers={tracerLayers} tracerDensity={state.particles}
+      probeLayer={probeLayer} frames={frames} onProbe={setProbe} tracerLayers={tracerLayers} tracerDensity={state.particles} tracerSize={state.particleSize ?? 7}
+      tracerColor={theme.dark ? [1, 1, 1] : [0.07, 0.09, 0.15]}
       onLoading={setLoading} onError={setError} loading={loading} error={error}
       screenshotName={`${run.spec.name || 'gustsim'}-${state.field}.png`}
       onScreenshot={(image) => annotateScreenshot(image, { title: run.spec.name, subtitle: `${FIELD_NAMES[state.field] || state.field}`, colormap: state.colormap, range, unit: fieldInfo.unit || undefined, status: manifest?.status })}>
@@ -332,6 +333,7 @@ export function FlowTab({ run, manifest, legacy, forces = null }: { run: Run; ma
             <Slider label="Line density" min={1} max={20} value={state.lines} onChange={(lines) => set({ lines })} display={subsample === 1 ? 'every line' : `1 in ${subsample}`} />
             <Toggle label="Animate particles" checked={state.animate} onChange={(animate) => set({ animate })} />
             {state.animate && <Slider label="Particles per line" min={2} max={40} value={state.particles} onChange={(particles) => set({ particles })} display={state.particles} />}
+            {state.animate && <Slider label="Particle size" min={3} max={14} value={state.particleSize ?? 7} onChange={(particleSize) => set({ particleSize })} display={`${state.particleSize ?? 7} px`} />}
             <p className="hint">Lines start upstream and follow the solved velocity. Particles replay the steady flow at its local speed; they are not a time-resolved simulation.</p>
           </>}
           {state.volume === 'cloud' && <>
