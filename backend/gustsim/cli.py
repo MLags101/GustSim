@@ -2,8 +2,10 @@ import argparse
 import json
 import os
 from pathlib import Path
-from . import db, geometry, foam, validation
-from .models import SimulationSpec
+
+# `gustsim mcp` and `gustsim agent` speak HTTP to the running stack and need only the standard
+# library, so the CAD, mesh and solver modules are imported after those commands are handled.
+UNITS = ('m', 'mm', 'cm', 'in')
 
 def _url(parser):
     parser.add_argument('--url', default=os.environ.get('GUSTSIM_URL', 'http://127.0.0.1:8080'), help='GustSim API, usually http://127.0.0.1:8080')
@@ -11,7 +13,7 @@ def _url(parser):
 def main():
     parser=argparse.ArgumentParser(description='GustSim reproducible CFD tools')
     sub=parser.add_subparsers(dest='command',required=True)
-    imp=sub.add_parser('import');imp.add_argument('file',type=Path);imp.add_argument('--units',default='mm',choices=geometry.UNITS)
+    imp=sub.add_parser('import');imp.add_argument('file',type=Path);imp.add_argument('--units',default='mm',choices=UNITS)
     default=sub.add_parser('defaults');default.add_argument('geometry_id');default.add_argument('output',type=Path)
     compile=sub.add_parser('compile');compile.add_argument('spec',type=Path);compile.add_argument('output',type=Path)
     validate=sub.add_parser('validate');validate.add_argument('spec',type=Path)
@@ -33,6 +35,8 @@ def main():
         from .agent import run_cli
         run_cli(args)
         return
+    from . import db, geometry, foam, validation
+    from .models import SimulationSpec
     db.initialize()
     if args.command=='import':
         data=args.file.read_bytes()

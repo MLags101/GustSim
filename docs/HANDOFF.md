@@ -341,3 +341,13 @@ This pass follows the user's test notes. `docs/DESIGN.md` records the AirShaper 
 - Five old demo drafts were hidden with the new draft `archived` flag (the dashboard's "Hide draft" button). Opening and saving a draft unhides it.
 
 **Dev note:** the Vite dev server sometimes reloads the page mid-request after re-optimising dependencies, which can leave a query pending. Check loading behaviour against the built `dist/`.
+
+## MCP for design agents (2026-10-19)
+
+The MCP server (`agent.py`, `gustsim mcp`) now drives the v2 simulations pipeline, so an external design agent can run a design loop: `gustsim_estimate`, `gustsim_simulate`, `gustsim_simulation`, `gustsim_continue_simulation`, `gustsim_results` (wind- and body-frame loads, rotor maps, convergence, evidence), `gustsim_batch`, `gustsim_batch_status`, `gustsim_compare` and `gustsim_detect_rotor` (with the `rotors.orient` axis convention).
+- The physics text follows `capabilities.py`: experimental, not excluded.
+- Failed tool replies set `isError`.
+- `wait_s` polls send `notifications/progress` when the client passes a `progressToken`.
+- `cli.py` imports the CAD and solver modules only after the `mcp` and `agent` commands, so the server runs on the host with the standard library alone. `tests/test_agent.py` checks this.
+- No API, schema or case-generation change. `docs/AGENT.md` has client configuration and robot-design recipes.
+- Verified with pytest and a stdio drive against a local API without a worker. No OpenFOAM solve has been run through the new tools yet. Run one against the Compose stack before relying on it.

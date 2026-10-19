@@ -3,6 +3,7 @@ import io
 import json
 from copy import deepcopy
 
+import pytest
 import trimesh
 from fastapi.testclient import TestClient
 
@@ -63,7 +64,117 @@ def test_mcp_dispatch_advertises_the_physics_contract():
         called = dispatch(tool, {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "gustsim_status", "arguments": {}}})
         body = json.loads(called["result"]["content"][0]["text"])
         assert body["ok"] and body["physics"]["experimental_validation"] == "pending"
-        assert "transient" in body["physics"]["excluded"]
+        assert called["result"]["isError"] is False
+        assert "compressible" in body["physics"]["not_supported"]
+        assert body["capabilities"]["transient"]["maturity"] == "experimental"
+        assert body["capabilities"]["early_stop"]["maturity"] == "core"
+        failed = dispatch(tool, {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "gustsim_run", "arguments": {}}})
+        assert failed["result"]["isError"] is True
+    finally:
+        client.__exit__(None, None, None)
+
+
+class ScriptedTransport:
+    """Replays a run that is queued twice and then completes."""
+    def __init__(self):
+        self.reads = 0
+
+    def request(self, method, path, **kwargs):
+        self.reads += 1
+        status = "queued" if self.reads < 3 else "completed"
+        return type("Reply", (), {"status": 200, "ok": True, "raw": b"",
+                                  "body": {"id": "r", "kind": "mesh", "status": status, "stage": status, "spec": {}, "result": {}}})()
+
+
+def test_waits_send_progress_notifications_only_when_asked(monkeypatch):
+    monkeypatch.setattr("gustsim.agent.time.sleep", lambda seconds: None)
+    tool = Session("http://gustsim.test", ScriptedTransport())
+    sent = []
+    message = {"jsonrpc": "2.0", "id": 9, "method": "tools/call",
+               "params": {"name": "gustsim_run", "arguments": {"run_id": "r", "wait_s": 60}, "_meta": {"progressToken": "t"}}}
+    reply = dispatch(tool, message, notify=sent.append)
+    body = json.loads(reply["result"]["content"][0]["text"])
+    assert body["status"] == "completed" and body["still_running"] is False
+    assert [item["params"]["progress"] for item in sent] == [1, 2]
+    assert all(item["method"] == "notifications/progress" and item["params"]["progressToken"] == "t" for item in sent)
+    assert tool.progress is None
+    quiet = []
+    tool.transport = ScriptedTransport()
+    dispatch(tool, {**message, "params": {**message["params"], "_meta": {}}}, notify=quiet.append)
+    assert quiet == []
+
+
+def test_mcp_starts_without_the_cad_and_solver_stack():
+    import subprocess
+    import sys
+    from pathlib import Path
+    backend = Path(__file__).resolve().parents[1] / "backend"
+    script = ("import sys\n"
+              "for name in ('numpy', 'trimesh', 'fastapi', 'pydantic', 'h5py'): sys.modules[name] = None\n"
+              "sys.argv = ['gustsim', 'agent', 'tools']\n"
+              "from gustsim.cli import main\n"
+              "main()\n")
+    done = subprocess.run([sys.executable, "-c", script], cwd=backend, capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr
+    names = {tool["name"] for tool in json.loads(done.stdout)}
+    assert {"gustsim_simulate", "gustsim_results", "gustsim_batch", "gustsim_estimate", "gustsim_detect_rotor"} <= names
+
+
+def test_design_loop_tools_queue_simulations_and_batches_without_a_worker():
+    tool, client = session()
+    try:
+        created, spec = confirmed_external(tool)
+        estimate = tool.call("gustsim_estimate", {"spec": spec})
+        assert estimate["ok"], estimate
+        assert estimate["current"]["cells"]["expected"] > 0 and estimate["current"]["feasible"] in (True, False)
+        assert {tier["tier"] for tier in estimate["tiers"]} >= {"basic", "regular", "advanced"}
+
+        thick = deepcopy(spec)
+        thick["mesh"].update(layers=15, first_layer_m=0.2, surface_level=1, body_level=0)
+        blocked = tool.call("gustsim_simulate", {"spec": thick})
+        assert blocked["ok"] is False and blocked["needs_acknowledgement"] is True
+
+        simulation = tool.call("gustsim_simulate", {"spec": spec, "acknowledge_warnings": True, "name": "sphere drag", "tags": ["robot"]})
+        assert simulation["ok"], simulation
+        assert simulation["status"] == "queued" and simulation["worker_online"] is False
+        assert simulation["status_block"]["validation"] == "experimental_validation_pending"
+        assert simulation["status_block"]["physics_maturity"] == "core"
+        read = tool.call("gustsim_simulation", {"simulation_id": simulation["id"], "wait_s": 0})
+        assert read["still_running"] is True and read["stages"][0]["kind"] == "mesh"
+        listed = tool.call("gustsim_list_simulations", {"tag": "robot"})
+        assert [row["id"] for row in listed["simulations"]] == [simulation["id"]]
+        assert tool.call("gustsim_continue_simulation", {"simulation_id": simulation["id"]})["ok"] is False
+        mesh_id = read["stages"][0]["id"]
+        refused = tool.call("gustsim_results", {"run_id": mesh_id})
+        assert refused["ok"] is False and "solve" in refused["error"]
+        cancelled = tool.call("gustsim_cancel_simulation", {"simulation_id": simulation["id"]})
+        assert cancelled["ok"] and cancelled["status"] == "cancelled"
+
+        batch = tool.call("gustsim_batch", {"name": "speed sweep", "base": spec, "kind": "sweep", "acknowledge_warnings": True,
+                                            "parameters": [{"path": "flow.speed", "values": [3, 5]}]})
+        assert batch["ok"], batch
+        assert len(batch["members"]) == 2 and batch["counts"] == {"queued": 2}
+        assert [member["values"]["flow.speed"] for member in batch["members"]] == [3, 5]
+        assert batch["shared_meshes"] == [batch["members"][0]["id"]]
+        status = tool.call("gustsim_batch_status", {"batch_id": batch["id"], "wait_s": 0})
+        assert status["ok"] and status["still_running"] is True
+        assert tool.call("gustsim_compare", {"run_ids": [mesh_id, batch["members"][0]["current_run_id"]]})["ok"] is False
+    finally:
+        client.__exit__(None, None, None)
+
+
+def test_rotor_detection_returns_an_oriented_preset_axis():
+    tool, client = session()
+    try:
+        created = client.post("/api/samples/propeller").json()
+        detected = tool.call("gustsim_detect_rotor", {"geometry_id": created["id"], "patches": ["propeller"], "rpm": 6000})
+        assert detected["ok"], detected
+        assert detected["blades"] == 3 and detected["suggestion"] is True
+        axis, rpm = detected["axis"], detected["preset_rpm"]
+        assert abs(abs(rpm) - 6000) < 1e-9
+        flipped = detected["handedness"] and rpm < 0
+        assert detected["preset_axis"] == pytest.approx([-x for x in axis] if flipped else axis)
+        assert tool.call("gustsim_detect_rotor", {"geometry_id": created["id"], "patches": ["nothing"]})["ok"] is False
     finally:
         client.__exit__(None, None, None)
 
